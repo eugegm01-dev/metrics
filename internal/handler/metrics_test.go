@@ -20,13 +20,23 @@ func TestGetMetricHandler(t *testing.T) {
 	defer ts.Close()
 
 	// Тест существующей метрики
-	resp, _ := http.Get(ts.URL + "/value/counter/test")
+	resp, err := http.Get(ts.URL + "/value/counter/test")
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	defer resp.Body.Close() // ← ВОТ ЭТОГО НЕ ХВАТАЛО!
+
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected 200, got %d", resp.StatusCode)
 	}
 
 	// Тест несуществующей метрики
-	resp, _ = http.Get(ts.URL + "/value/counter/nonexistent")
+	resp, err = http.Get(ts.URL + "/value/counter/nonexistent")
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	defer resp.Body.Close() // ← И ЗДЕСЬ ТОЖЕ!
+
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("Expected 404, got %d", resp.StatusCode)
 	}
