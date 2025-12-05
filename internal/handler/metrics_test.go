@@ -6,24 +6,28 @@ import (
 	"testing"
 
 	"github.com/eugegm01-dev/metrics/internal/repository"
+	"github.com/go-chi/chi/v5"
 )
 
-func TestUpdateHandler(t *testing.T) {
+func TestGetMetricHandler(t *testing.T) {
 	storage := repository.NewMemStorage()
-	handler := UpdateHandler(storage)
+	storage.UpdateCounter("test", 42)
 
-	// Тест 1: Успешный counter
-	req := httptest.NewRequest("POST", "/update/counter/test/527", nil)
-	w := httptest.NewRecorder()
-	handler(w, req)
+	r := chi.NewRouter()
+	r.Get("/value/{type}/{name}", GetMetricHandler(storage))
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	// Тест существующей метрики
+	resp, _ := http.Get(ts.URL + "/value/counter/test")
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200, got %d", resp.StatusCode)
 	}
 
-	// Проверяем, что counter сохранился
-	val, ok := storage.GetCounter("test")
-	if !ok || val != 527 {
-		t.Errorf("Counter not saved correctly")
+	// Тест несуществующей метрики
+	resp, _ = http.Get(ts.URL + "/value/counter/nonexistent")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected 404, got %d", resp.StatusCode)
 	}
 }
