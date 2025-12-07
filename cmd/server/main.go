@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/eugegm01-dev/metrics/internal/config"
 	"github.com/eugegm01-dev/metrics/internal/handler"
 	"github.com/eugegm01-dev/metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
@@ -12,23 +13,25 @@ import (
 )
 
 func main() {
-	// Инициализируем хранилище
+	// 1. Парсим конфигурацию (флаги)
+	cfg, err := config.ParseServerConfig()
+	if err != nil {
+		log.Fatalf("Failed to parse config: %v", err)
+	}
+
+	// 2. Инициализируем хранилище и роутер
 	storage := repository.NewMemStorage()
-
-	// Создаём роутер Chi
 	r := chi.NewRouter()
-
-	// Добавляем middleware (по желанию)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// Настраиваем маршруты
-	r.Get("/", handler.IndexHTMLHandler(storage))                    // HTML страница
-	r.Post("/update/*", handler.UpdateHandler(storage))              // Обновление метрик
-	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage)) // Получение значения
+	// 3. Настраиваем маршруты
+	r.Get("/", handler.IndexHTMLHandler(storage))
+	r.Post("/update/*", handler.UpdateHandler(storage))
+	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage))
 
-	// Запускаем сервер
-	serverAddr := ":8080"
+	// 4. Запускаем сервер с адресом из конфига
+	serverAddr := cfg.Addr
 	fmt.Printf("Starting server on %s\n", serverAddr)
 	fmt.Println("Available endpoints:")
 	fmt.Println("  GET  /                    - HTML страница со всеми метриками")
