@@ -10,20 +10,15 @@ import (
 	"github.com/eugegm01-dev/metrics/internal/repository"
 )
 
-// UpdateHandler создает и возвращает обработчик для пути /update/
 func UpdateHandler(storage *repository.MemStorage) http.HandlerFunc {
-	// Возвращаем саму функцию-обработчик
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Проверяем метод
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Разбираем URL: /update/<ТИП>/<ИМЯ>/<ЗНАЧЕНИЕ>
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 
-		// Проверяем формат
 		if len(parts) != 4 || parts[0] != "update" {
 			http.Error(w, "Invalid request format", http.StatusNotFound)
 			return
@@ -33,19 +28,16 @@ func UpdateHandler(storage *repository.MemStorage) http.HandlerFunc {
 		metricName := parts[2]
 		metricValue := parts[3]
 
-		// Проверяем наличие имени метрики
 		if metricName == "" {
 			http.Error(w, "Metric name is required", http.StatusNotFound)
 			return
 		}
 
-		// Проверяем тип метрики
 		if metricType != "gauge" && metricType != "counter" {
 			http.Error(w, "Invalid metric type", http.StatusBadRequest)
 			return
 		}
 
-		// Обрабатываем метрику
 		switch metricType {
 		case "gauge":
 			value, err := strconv.ParseFloat(metricValue, 64)
@@ -64,13 +56,11 @@ func UpdateHandler(storage *repository.MemStorage) http.HandlerFunc {
 			storage.UpdateCounter(metricName, value)
 		}
 
-		// Успешный ответ
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	}
 }
 
-// RootHandler для корневого пути
 func RootHandler(storage *repository.MemStorage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -89,7 +79,6 @@ func GetMetricHandler(storage *repository.MemStorage) http.HandlerFunc {
 			return
 		}
 
-		// Разбираем URL: /value/<ТИП>/<ИМЯ>
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 
 		if len(parts) != 3 || parts[0] != "value" {
@@ -100,7 +89,6 @@ func GetMetricHandler(storage *repository.MemStorage) http.HandlerFunc {
 		metricType := parts[1]
 		metricName := parts[2]
 
-		// Получаем значение метрики
 		switch metricType {
 		case "gauge":
 			value, exists := storage.GetGauge(metricName)
@@ -129,7 +117,6 @@ func GetMetricHandler(storage *repository.MemStorage) http.HandlerFunc {
 	}
 }
 
-// IndexHTMLHandler возвращает HTML страницу со всеми метриками
 func IndexHTMLHandler(storage *repository.MemStorage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/" {
@@ -140,10 +127,8 @@ func IndexHTMLHandler(storage *repository.MemStorage) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 
-		// Получаем все метрики в виде строки
 		metricsText := storage.GetAllMetrics()
 
-		// Простой HTML с метриками
 		htmlContent := `
 <!DOCTYPE html>
 <html>

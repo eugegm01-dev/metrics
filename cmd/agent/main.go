@@ -10,7 +10,6 @@ import (
 )
 
 func main() {
-	// 1. Парсим конфигурацию
 	cfg, err := config.ParseAgentConfig()
 	if err != nil {
 		log.Fatalf("Failed to parse config: %v", err)
@@ -21,7 +20,6 @@ func main() {
 	fmt.Printf("  Poll interval: %v\n", cfg.PollInterval)
 	fmt.Printf("  Report interval: %v\n\n", cfg.ReportInterval)
 
-	// 2. Основной цикл работы агента
 	pollTicker := time.NewTicker(cfg.PollInterval)
 	reportTicker := time.NewTicker(cfg.ReportInterval)
 
@@ -31,19 +29,15 @@ func main() {
 	for {
 		select {
 		case <-pollTicker.C:
-			// Здесь будет сбор метрик (в следующем шаге)
 			fmt.Println("[DEBUG] Poll tick - collecting metrics")
 
 		case <-reportTicker.C:
-			// Здесь будет отправка метрик
 			fmt.Println("[DEBUG] Report tick - sending metrics")
-			// Временная заглушка для проверки конфигурации
 			testConnection(cfg.ServerAddr)
 		}
 	}
 }
 
-// Вспомогательная функция для проверки связи
 func testConnection(serverAddr string) {
 	url := "http://" + serverAddr + "/"
 	resp, err := http.Get(url)

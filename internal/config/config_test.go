@@ -8,13 +8,11 @@ import (
 )
 
 func TestParseServerConfig(t *testing.T) {
-	// Сохраняем оригинальные аргументы
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 
-	// Тест 1: Значение по умолчанию
 	os.Args = []string{"cmd"}
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError) // Сбрасываем флаги
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	cfg, err := ParseServerConfig()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -23,7 +21,6 @@ func TestParseServerConfig(t *testing.T) {
 		t.Errorf("Expected default address 'localhost:8080', got '%s'", cfg.Addr)
 	}
 
-	// Тест 2: Пользовательское значение
 	os.Args = []string{"cmd", "-a", "localhost:9090"}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	cfg, err = ParseServerConfig()
@@ -36,11 +33,9 @@ func TestParseServerConfig(t *testing.T) {
 }
 
 func TestParseAgentConfig(t *testing.T) {
-	// Сохраняем оригинальные аргументы
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 
-	// Тест 1: Значения по умолчанию
 	os.Args = []string{"cmd"}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	cfg, err := ParseAgentConfig()
@@ -57,7 +52,6 @@ func TestParseAgentConfig(t *testing.T) {
 		t.Errorf("Expected default poll interval 2s, got %v", cfg.PollInterval)
 	}
 
-	// Тест 2: Пользовательские значения
 	os.Args = []string{"cmd", "-a", "server:8080", "-r", "5", "-p", "1"}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	cfg, err = ParseAgentConfig()

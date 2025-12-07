@@ -44,7 +44,6 @@ func (s *MemStorage) GetCounter(name string) (int64, bool) {
 	return val, ok
 }
 
-// GetAllMetrics возвращает строку со всеми метриками для отладки
 func (s *MemStorage) GetAllMetrics() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
