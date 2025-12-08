@@ -5,28 +5,21 @@ import (
 	"html"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/eugegm01-dev/metrics/internal/repository"
+	"github.com/go-chi/chi/v5"
 )
 
-func UpdateHandler(storage *repository.MemStorage) http.HandlerFunc {
+func UpdateHandler(storage repository.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-
-		if len(parts) != 4 || parts[0] != "update" {
-			http.Error(w, "Invalid request format", http.StatusNotFound)
-			return
-		}
-
-		metricType := parts[1]
-		metricName := parts[2]
-		metricValue := parts[3]
+		metricType := chi.URLParam(r, "type")
+		metricName := chi.URLParam(r, "name")
+		metricValue := chi.URLParam(r, "value")
 
 		if metricName == "" {
 			http.Error(w, "Metric name is required", http.StatusNotFound)
@@ -61,33 +54,15 @@ func UpdateHandler(storage *repository.MemStorage) http.HandlerFunc {
 	}
 }
 
-func RootHandler(storage *repository.MemStorage) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		info := storage.GetAllMetrics()
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(info))
-	}
-}
-func GetMetricHandler(storage *repository.MemStorage) http.HandlerFunc {
+func GetMetricHandler(storage repository.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-
-		if len(parts) != 3 || parts[0] != "value" {
-			http.Error(w, "Invalid request format", http.StatusNotFound)
-			return
-		}
-
-		metricType := parts[1]
-		metricName := parts[2]
+		metricType := chi.URLParam(r, "type")
+		metricName := chi.URLParam(r, "name")
 
 		switch metricType {
 		case "gauge":
@@ -117,7 +92,7 @@ func GetMetricHandler(storage *repository.MemStorage) http.HandlerFunc {
 	}
 }
 
-func IndexHTMLHandler(storage *repository.MemStorage) http.HandlerFunc {
+func IndexHTMLHandler(storage repository.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -147,7 +122,7 @@ func IndexHTMLHandler(storage *repository.MemStorage) http.HandlerFunc {
     <h1>Metrics Server</h1>
     <h2>All Metrics</h2>
     <pre>` + html.EscapeString(metricsText) + `</pre>
-    
+
     <h2>Quick Links</h2>
     <ul>
         <li><a href="/update/counter/test/1">Update counter test</a></li>

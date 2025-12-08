@@ -2,6 +2,7 @@ package config
 
 import (
 	"flag"
+	"log"
 	"os"
 )
 
@@ -21,6 +22,7 @@ func ParseServerConfig() (*ServerConfig, error) {
 	}
 
 	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
+		log.Printf("Using server address from environment: %s", envAddr)
 		cfg.Addr = envAddr
 	}
 

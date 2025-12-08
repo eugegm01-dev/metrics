@@ -2,6 +2,7 @@ package config
 
 import (
 	"flag"
+	"log"
 	"os"
 	"strconv"
 	"time"
@@ -33,14 +34,23 @@ func ParseAgentConfig() (*AgentConfig, error) {
 	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
 		cfg.ServerAddr = envAddr
 	}
+	// Пример для REPORT_INTERVAL (для POLL_INTERVAL сделайте аналогично):
 	if envReport := os.Getenv("REPORT_INTERVAL"); envReport != "" {
-		if val, err := strconv.Atoi(envReport); err == nil {
+		val, err := strconv.Atoi(envReport)
+		if err != nil {
+			// ЛОГИРУЕМ ошибку, но не падаем. Используем значение по умолчанию.
+			log.Printf("CONFIG WARNING: invalid REPORT_INTERVAL value '%s', using default (%ds). Error: %v", envReport, flagReportInt, err)
+		} else {
 			cfg.ReportInterval = time.Duration(val) * time.Second
 		}
 	}
 	if envPoll := os.Getenv("POLL_INTERVAL"); envPoll != "" {
-		if val, err := strconv.Atoi(envPoll); err == nil {
-			cfg.PollInterval = time.Duration(val) * time.Second
+		val, err := strconv.Atoi(envPoll)
+		if err != nil {
+			log.Printf("CONFIG WARNING: invalid POLL_INTERVAL value '%s', using default (%ds). Error: %v",
+				envPoll, flagPollInt, err) // ← envPoll и flagPollInt
+		} else {
+			cfg.PollInterval = time.Duration(val) * time.Second // ← PollInterval
 		}
 	}
 

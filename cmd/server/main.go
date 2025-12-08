@@ -24,7 +24,7 @@ func main() {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/", handler.IndexHTMLHandler(storage))
-	r.Post("/update/*", handler.UpdateHandler(storage))
+	r.Post("/update/{type}/{name}/{value}", handler.UpdateHandler(storage))
 	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage))
 
 	serverAddr := cfg.Addr
