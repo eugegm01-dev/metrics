@@ -3,77 +3,60 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/eugegm01-dev/metrics/internal/config"
+	"github.com/eugegm01-dev/metrics/internal/handler"
+	customMiddleware "github.com/eugegm01-dev/metrics/internal/middleware"
+	"github.com/eugegm01-dev/metrics/internal/repository"
+	"github.com/go-chi/chi/v5"
+	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 )
 
 func main() {
-	// создаём логгер
+	// создаём предустановленный регистратор zap
 	logger, err := zap.NewDevelopment()
 	if err != nil {
 		panic(err)
 	}
 	defer logger.Sync()
 
-	sugar := logger.Sugar()
-	defer sugar.Sync()
-
-	cfg, err := config.ParseAgentConfig()
+	cfg, err := config.ParseServerConfig()
 	if err != nil {
-		sugar.Fatalw("Failed to parse config", "error", err)
+		logger.Fatal("Failed to parse config", zap.Error(err))
 	}
 
-	sugar.Infow("Starting agent",
-		"server_address", cfg.ServerAddr,
-		"poll_interval", cfg.PollInterval,
-		"report_interval", cfg.ReportInterval,
+	storage := repository.NewMemStorage()
+	r := chi.NewRouter()
+
+	// стандартные middleware от chi
+	r.Use(chiMiddleware.Recoverer)
+
+	// наше middleware для логирования
+	r.Use(customMiddleware.LoggingMiddleware(logger))
+
+	// Регистрируем обработчики
+	r.Get("/", handler.IndexHTMLHandler(storage))
+	r.Post("/update/{type}/{name}/{value}", handler.UpdateHandler(storage))
+	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage))
+
+	serverAddr := cfg.Addr
+
+	// записываем в лог, что сервер запускается
+	logger.Info("Starting server",
+		zap.String("addr", serverAddr),
 	)
 
-	fmt.Printf("Starting agent with config:\n")
-	fmt.Printf("  Server address: %s\n", cfg.ServerAddr)
-	fmt.Printf("  Poll interval: %v\n", cfg.PollInterval)
-	fmt.Printf("  Report interval: %v\n\n", cfg.ReportInterval)
+	fmt.Printf("Starting server on %s\n", serverAddr)
+	fmt.Println("Available endpoints:")
+	fmt.Println("  GET  /                    - HTML страница со всеми метриками")
+	fmt.Println("  POST /update/{type}/{name}/{value} - Обновление метрики")
+	fmt.Println("  GET  /value/{type}/{name} - Получение значения метрики")
 
-	pollTicker := time.NewTicker(cfg.PollInterval)
-	reportTicker := time.NewTicker(cfg.ReportInterval)
-
-	defer pollTicker.Stop()
-	defer reportTicker.Stop()
-
-	for {
-		select {
-		case <-pollTicker.C:
-			sugar.Debug("Poll tick - collecting metrics")
-
-		case <-reportTicker.C:
-			sugar.Info("Report tick - sending metrics")
-			testConnection(cfg.ServerAddr, sugar)
-		}
-	}
-}
-
-func testConnection(serverAddr string, sugar *zap.SugaredLogger) {
-	url := "http://" + serverAddr + "/"
-
-	start := time.Now()
-	resp, err := http.Get(url)
-	duration := time.Since(start)
-
-	if err != nil {
-		sugar.Errorw("Connection error",
-			"url", url,
-			"error", err,
-			"duration", duration,
+	if err := http.ListenAndServe(serverAddr, r); err != nil {
+		logger.Fatal("Server failed",
+			zap.String("addr", serverAddr),
+			zap.Error(err),
 		)
-		return
 	}
-	defer resp.Body.Close()
-
-	sugar.Infow("Server responded",
-		"url", url,
-		"status", resp.StatusCode,
-		"duration", duration,
-	)
 }
