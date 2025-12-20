@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	// создаём предустановленный регистратор zap
+	// Создаем логгер zap в режиме разработки
 	logger, err := zap.NewDevelopment()
 	if err != nil {
 		panic(err)
@@ -29,20 +29,19 @@ func main() {
 	storage := repository.NewMemStorage()
 	r := chi.NewRouter()
 
-	// стандартные middleware от chi
+	// Используем стандартные middleware от Chi
 	r.Use(chiMiddleware.Recoverer)
 
-	// наше middleware для логирования
+	// Подключаем НАШ middleware для логирования (важно: до объявления роутов!)
 	r.Use(customMiddleware.LoggingMiddleware(logger))
 
-	// Регистрируем обработчики
 	r.Get("/", handler.IndexHTMLHandler(storage))
 	r.Post("/update/{type}/{name}/{value}", handler.UpdateHandler(storage))
 	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage))
 
 	serverAddr := cfg.Addr
 
-	// записываем в лог, что сервер запускается
+	// Логируем запуск сервера с использованием zap
 	logger.Info("Starting server",
 		zap.String("addr", serverAddr),
 	)
