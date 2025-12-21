@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
 	"strconv"
 
+	models "github.com/eugegm01-dev/metrics/internal/model"
 	"github.com/eugegm01-dev/metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
 )
@@ -54,6 +56,58 @@ func UpdateHandler(storage repository.Storage) http.HandlerFunc {
 	}
 }
 
+// UpdateJSONHandler обрабатывает обновление метрики через JSON
+func UpdateJSONHandler(storage repository.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+			return
+		}
+
+		var metric models.Metrics
+		dec := json.NewDecoder(r.Body)
+		if err := dec.Decode(&metric); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		if metric.ID == "" {
+			http.Error(w, "Metric name (id) is required", http.StatusBadRequest)
+			return
+		}
+
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				http.Error(w, "Value is required for gauge", http.StatusBadRequest)
+				return
+			}
+			storage.UpdateGauge(metric.ID, *metric.Value)
+
+		case models.Counter:
+			if metric.Delta == nil {
+				http.Error(w, "Delta is required for counter", http.StatusBadRequest)
+				return
+			}
+			storage.UpdateCounter(metric.ID, *metric.Delta)
+
+		default:
+			http.Error(w, "Invalid metric type", http.StatusBadRequest)
+			return
+		}
+
+		// Возвращаем тот же JSON, что получили
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		enc := json.NewEncoder(w)
+		enc.Encode(metric)
+	}
+}
 func GetMetricHandler(storage repository.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -89,6 +143,64 @@ func GetMetricHandler(storage repository.Storage) http.HandlerFunc {
 			http.Error(w, "Invalid metric type", http.StatusBadRequest)
 			return
 		}
+	}
+}
+
+// ValueJSONHandler возвращает значение метрики в формате JSON
+func ValueJSONHandler(storage repository.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+			return
+		}
+
+		var metric models.Metrics
+		dec := json.NewDecoder(r.Body)
+		if err := dec.Decode(&metric); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		if metric.ID == "" {
+			http.Error(w, "Metric name (id) is required", http.StatusBadRequest)
+			return
+		}
+
+		var response models.Metrics
+		response.ID = metric.ID
+		response.MType = metric.MType
+
+		switch metric.MType {
+		case models.Gauge:
+			value, exists := storage.GetGauge(metric.ID)
+			if !exists {
+				http.Error(w, "Metric not found", http.StatusNotFound)
+				return
+			}
+			response.Value = &value
+
+		case models.Counter:
+			value, exists := storage.GetCounter(metric.ID)
+			if !exists {
+				http.Error(w, "Metric not found", http.StatusNotFound)
+				return
+			}
+			response.Delta = &value
+
+		default:
+			http.Error(w, "Invalid metric type", http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		enc := json.NewEncoder(w)
+		enc.Encode(response)
 	}
 }
 

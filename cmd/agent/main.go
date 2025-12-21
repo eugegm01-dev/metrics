@@ -3,10 +3,11 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"time"
 
+	"github.com/eugegm01-dev/metrics/internal/agent"
 	"github.com/eugegm01-dev/metrics/internal/config"
+	models "github.com/eugegm01-dev/metrics/internal/model"
 )
 
 func main() {
@@ -26,25 +27,23 @@ func main() {
 	defer pollTicker.Stop()
 	defer reportTicker.Stop()
 
+	var metrics []models.Metrics
+
 	for {
 		select {
 		case <-pollTicker.C:
 			fmt.Println("[DEBUG] Poll tick - collecting metrics")
+			metrics = agent.CollectMetrics()
 
 		case <-reportTicker.C:
 			fmt.Println("[DEBUG] Report tick - sending metrics")
-			testConnection(cfg.ServerAddr)
+			if len(metrics) > 0 {
+				if err := agent.SendMetrics(cfg.ServerAddr, metrics); err != nil {
+					fmt.Printf("  Failed to send metrics: %v\n", err)
+				} else {
+					fmt.Printf("  Successfully sent %d metrics\n", len(metrics))
+				}
+			}
 		}
 	}
-}
-
-func testConnection(serverAddr string) {
-	url := "http://" + serverAddr + "/"
-	resp, err := http.Get(url)
-	if err != nil {
-		fmt.Printf("  Connection error: %v\n", err)
-		return
-	}
-	defer resp.Body.Close()
-	fmt.Printf("  Server responded with status: %d\n", resp.StatusCode)
 }

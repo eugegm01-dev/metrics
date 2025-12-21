@@ -38,6 +38,8 @@ func main() {
 	r.Get("/", handler.IndexHTMLHandler(storage))
 	r.Post("/update/{type}/{name}/{value}", handler.UpdateHandler(storage))
 	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage))
+	r.Post("/update", handler.UpdateJSONHandler(storage))
+	r.Post("/value", handler.ValueJSONHandler(storage))
 
 	serverAddr := cfg.Addr
 
@@ -48,10 +50,12 @@ func main() {
 
 	fmt.Printf("Starting server on %s\n", serverAddr)
 	fmt.Println("Available endpoints:")
+	fmt.Println("Available endpoints:")
 	fmt.Println("  GET  /                    - HTML страница со всеми метриками")
-	fmt.Println("  POST /update/{type}/{name}/{value} - Обновление метрики")
-	fmt.Println("  GET  /value/{type}/{name} - Получение значения метрики")
-
+	fmt.Println("  POST /update/{type}/{name}/{value} - Обновление метрики (текстовый формат)")
+	fmt.Println("  GET  /value/{type}/{name} - Получение значения метрики (текстовый формат)")
+	fmt.Println("  POST /update              - Обновление метрики (JSON формат)")
+	fmt.Println("  POST /value               - Получение значения метрики (JSON формат)")
 	if err := http.ListenAndServe(serverAddr, r); err != nil {
 		logger.Fatal("Server failed",
 			zap.String("addr", serverAddr),
