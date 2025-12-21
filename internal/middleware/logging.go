@@ -38,6 +38,12 @@ func LoggingMiddleware(logger *zap.Logger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 
+			logger.Debug("request started",
+				zap.String("method", r.Method),
+				zap.String("path", r.URL.Path),
+				zap.String("raw_path", r.URL.RawPath),
+			)
+
 			responseData := &responseData{
 				status: 0,
 				size:   0,

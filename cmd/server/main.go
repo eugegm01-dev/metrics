@@ -40,6 +40,8 @@ func main() {
 	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage))
 	r.Post("/update", handler.UpdateJSONHandler(storage))
 	r.Post("/value", handler.ValueJSONHandler(storage))
+	r.Post("/update/", handler.UpdateJSONHandler(storage))
+	r.Post("/value/", handler.ValueJSONHandler(storage))
 
 	serverAddr := cfg.Addr
 
