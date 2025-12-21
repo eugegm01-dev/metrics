@@ -81,15 +81,21 @@ func UpdateJSONHandler(storage repository.Storage) http.HandlerFunc {
 			return
 		}
 
+		// Исправлено: models вместо model
+		if metric.MType != models.Gauge && metric.MType != models.Counter {
+			http.Error(w, "Invalid metric type. Must be 'gauge' or 'counter'", http.StatusBadRequest)
+			return
+		}
+
 		switch metric.MType {
-		case models.Gauge:
+		case models.Gauge: // Исправлено
 			if metric.Value == nil {
 				http.Error(w, "Value is required for gauge", http.StatusBadRequest)
 				return
 			}
 			storage.UpdateGauge(metric.ID, *metric.Value)
 
-		case models.Counter:
+		case models.Counter: // Исправлено
 			if metric.Delta == nil {
 				http.Error(w, "Delta is required for counter", http.StatusBadRequest)
 				return
@@ -101,13 +107,27 @@ func UpdateJSONHandler(storage repository.Storage) http.HandlerFunc {
 			return
 		}
 
-		// Возвращаем тот же JSON, что получили
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+
+		var response models.Metrics
+		response.ID = metric.ID
+		response.MType = metric.MType
+
+		switch metric.MType {
+		case models.Gauge: // Исправлено
+			val, _ := storage.GetGauge(metric.ID)
+			response.Value = &val
+		case models.Counter: // Исправлено
+			val, _ := storage.GetCounter(metric.ID)
+			response.Delta = &val
+		}
+
 		enc := json.NewEncoder(w)
-		enc.Encode(metric)
+		enc.Encode(response)
 	}
 }
+
 func GetMetricHandler(storage repository.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

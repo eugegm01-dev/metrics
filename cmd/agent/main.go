@@ -27,22 +27,26 @@ func main() {
 	defer pollTicker.Stop()
 	defer reportTicker.Stop()
 
+	// Инициализируем счетчик сбора
 	var metrics []models.Metrics
 
 	for {
 		select {
 		case <-pollTicker.C:
 			fmt.Println("[DEBUG] Poll tick - collecting metrics")
+			// Собираем метрики при каждом тике
 			metrics = agent.CollectMetrics()
 
 		case <-reportTicker.C:
 			fmt.Println("[DEBUG] Report tick - sending metrics")
 			if len(metrics) > 0 {
+				// Отправляем последние собранные метрики
 				if err := agent.SendMetrics(cfg.ServerAddr, metrics); err != nil {
 					fmt.Printf("  Failed to send metrics: %v\n", err)
 				} else {
 					fmt.Printf("  Successfully sent %d metrics\n", len(metrics))
 				}
+				// Не сбрасываем метрики, продолжаем накапливать счетчик
 			}
 		}
 	}
