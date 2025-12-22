@@ -13,6 +13,7 @@ import (
 )
 
 func TestGetMetricHandler(t *testing.T) {
+	// Используем NewMemStorage как обычно
 	storage := repository.NewMemStorage()
 	storage.UpdateCounter("test", 42)
 
@@ -42,6 +43,7 @@ func TestGetMetricHandler(t *testing.T) {
 		t.Errorf("Expected 404, got %d", resp.StatusCode)
 	}
 }
+
 func TestUpdateJSONHandler(t *testing.T) {
 	storage := repository.NewMemStorage()
 

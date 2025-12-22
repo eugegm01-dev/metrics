@@ -59,3 +59,20 @@ func (s *MemStorage) GetAllMetrics() string {
 	}
 	return result
 }
+
+// SaveToFile - пустая реализация для MemStorage (ничего не делает)
+func (s *MemStorage) SaveToFile() error {
+	// MemStorage не сохраняет на диск, поэтому просто возвращаем nil
+	return nil
+}
+
+// LoadFromFile - пустая реализация для MemStorage (ничего не делает)
+func (s *MemStorage) LoadFromFile() error {
+	// MemStorage не загружает с диска, поэтому просто возвращаем nil
+	return nil
+}
+
+// Close - пустая реализация для MemStorage (ничего не делает)
+func (s *MemStorage) Close() {
+	// MemStorage не имеет ресурсов для освобождения
+}
