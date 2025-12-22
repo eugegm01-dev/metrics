@@ -7,7 +7,6 @@ import (
 	"github.com/eugegm01-dev/metrics/internal/config"
 	"github.com/eugegm01-dev/metrics/internal/handler"
 	"github.com/eugegm01-dev/metrics/internal/middleware"
-	customMiddleware "github.com/eugegm01-dev/metrics/internal/middleware"
 	"github.com/eugegm01-dev/metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
@@ -35,7 +34,7 @@ func main() {
 	r.Use(middleware.GzipMiddleware)
 
 	// Подключаем НАШ middleware для логирования (важно: до объявления роутов!)
-	r.Use(customMiddleware.LoggingMiddleware(logger))
+	r.Use(middleware.LoggingMiddleware(logger))
 
 	r.Get("/", handler.IndexHTMLHandler(storage))
 	r.Post("/update/{type}/{name}/{value}", handler.UpdateHandler(storage))
