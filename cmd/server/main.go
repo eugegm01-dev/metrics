@@ -6,6 +6,7 @@ import (
 
 	"github.com/eugegm01-dev/metrics/internal/config"
 	"github.com/eugegm01-dev/metrics/internal/handler"
+	"github.com/eugegm01-dev/metrics/internal/middleware"
 	customMiddleware "github.com/eugegm01-dev/metrics/internal/middleware"
 	"github.com/eugegm01-dev/metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
@@ -31,6 +32,7 @@ func main() {
 
 	// Используем стандартные middleware от Chi
 	r.Use(chiMiddleware.Recoverer)
+	r.Use(middleware.GzipMiddleware)
 
 	// Подключаем НАШ middleware для логирования (важно: до объявления роутов!)
 	r.Use(customMiddleware.LoggingMiddleware(logger))

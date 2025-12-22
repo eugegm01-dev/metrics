@@ -1,7 +1,9 @@
+// internal/agent/sender.go
 package agent
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,7 +12,18 @@ import (
 	models "github.com/eugegm01-dev/metrics/internal/model"
 )
 
-// SendMetrics отправляет метрики на сервер
+func gzipData(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err := gw.Write(data); err != nil {
+		return nil, err
+	}
+	if err := gw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 func SendMetrics(serverAddr string, metrics []models.Metrics) error {
 	for _, metric := range metrics {
 		jsonData, err := json.Marshal(metric)
@@ -18,13 +31,20 @@ func SendMetrics(serverAddr string, metrics []models.Metrics) error {
 			return fmt.Errorf("failed to marshal metric: %w", err)
 		}
 
+		gzData, err := gzipData(jsonData)
+		if err != nil {
+			return fmt.Errorf("failed to gzip data: %w", err)
+		}
+
 		url := "http://" + serverAddr + "/update"
-		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(gzData))
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
 		}
 
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "gzip")
+		req.Header.Set("Accept-Encoding", "gzip") // клиент поддерживает gzip
 
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req)
@@ -37,6 +57,5 @@ func SendMetrics(serverAddr string, metrics []models.Metrics) error {
 			return fmt.Errorf("server returned status: %d", resp.StatusCode)
 		}
 	}
-
 	return nil
 }
