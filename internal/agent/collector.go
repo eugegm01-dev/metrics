@@ -3,22 +3,14 @@ package agent
 import (
 	"math/rand"
 	"runtime"
-	"sync/atomic"
 
 	"github.com/eugegm01-dev/metrics/internal/model"
 )
 
-var (
-	pollCount int64 = 0
-)
-
+// CollectMetrics собирает метрики runtime.
 func CollectMetrics() []model.Metrics {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
-
-	// Атомарно увеличиваем счетчик
-	atomic.AddInt64(&pollCount, 1)
-	currentPollCount := atomic.LoadInt64(&pollCount)
 
 	metrics := []model.Metrics{
 		{ID: "Alloc", MType: model.Gauge, Value: float64Ptr(float64(stats.Alloc))},
@@ -48,9 +40,6 @@ func CollectMetrics() []model.Metrics {
 		{ID: "StackSys", MType: model.Gauge, Value: float64Ptr(float64(stats.StackSys))},
 		{ID: "Sys", MType: model.Gauge, Value: float64Ptr(float64(stats.Sys))},
 		{ID: "TotalAlloc", MType: model.Gauge, Value: float64Ptr(float64(stats.TotalAlloc))},
-
-		// Counter должен накапливаться
-		{ID: "PollCount", MType: model.Counter, Delta: int64Ptr(currentPollCount)},
 
 		// Произвольная метрика
 		{ID: "RandomValue", MType: model.Gauge, Value: float64Ptr(rand.Float64() * 1000)},

@@ -2,7 +2,7 @@ package config
 
 import (
 	"flag"
-	"log"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -25,7 +25,7 @@ func ParseServerConfig() (*ServerConfig, error) {
 	flag.StringVar(&flagRunAddr, "a", "localhost:8080", "адрес и порт для запуска сервера")
 	flag.IntVar(&flagStoreInterval, "i", 300, "интервал сохранения метрик на диск в секундах (0 - синхронная запись)")
 	flag.StringVar(&flagFileStoragePath, "f", "/tmp/metrics-db.json", "путь к файлу для сохранения метрик")
-	flag.BoolVar(&flagRestore, "r", true, "загружать сохраненные метрики при старте")
+	flag.BoolVar(&flagRestore, "r", true, "загружать сохранённые метрики при старте")
 
 	flag.Parse()
 
@@ -36,30 +36,44 @@ func ParseServerConfig() (*ServerConfig, error) {
 		Restore:         flagRestore,
 	}
 
-	// Приоритет: переменные окружения > флаги > значения по умолчанию
-	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
-		log.Printf("Using server address from environment: %s", envAddr)
+	// Приоритет: переменные окружения > флаги > дефолт
+
+	// ADDRESS
+	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
 		cfg.Addr = envAddr
 	}
 
-	if envStoreInterval := os.Getenv("STORE_INTERVAL"); envStoreInterval != "" {
+	// STORE_INTERVAL — Fail early: если переменная есть — парсим строго
+	if envStoreInterval, ok := os.LookupEnv("STORE_INTERVAL"); ok {
 		val, err := strconv.Atoi(envStoreInterval)
 		if err != nil {
-			log.Printf("CONFIG WARNING: invalid STORE_INTERVAL '%s', using default. Error: %v",
-				envStoreInterval, err)
-		} else {
-			cfg.StoreInterval = time.Duration(val) * time.Second
+			return nil, fmt.Errorf("invalid STORE_INTERVAL value: %q (must be integer), error: %v", envStoreInterval, err)
 		}
+		cfg.StoreInterval = time.Duration(val) * time.Second
 	}
 
-	if envFilePath := os.Getenv("FILE_STORAGE_PATH"); envFilePath != "" {
+	// FILE_STORAGE_PATH
+	if envFilePath, ok := os.LookupEnv("FILE_STORAGE_PATH"); ok {
 		cfg.FileStoragePath = envFilePath
 	}
 
-	if envRestore := os.Getenv("RESTORE"); envRestore != "" {
-		// Приводим к нижнему регистру для надежности
-		envRestoreLower := strings.ToLower(envRestore)
-		cfg.Restore = (envRestoreLower == "true" || envRestoreLower == "1" || envRestoreLower == "yes")
+	// RESTORE — Fail early: если переменная есть — парсим строго
+	if envRestore, ok := os.LookupEnv("RESTORE"); ok {
+		val, err := strconv.ParseBool(envRestore)
+		if err != nil {
+			// Допускаем "true", "1", "yes", "false", "0", "no" (как раньше)
+			lower := strings.ToLower(envRestore)
+			switch lower {
+			case "true", "1", "yes":
+				cfg.Restore = true
+			case "false", "0", "no", "":
+				cfg.Restore = false
+			default:
+				return nil, fmt.Errorf("invalid RESTORE value: %q (must be boolean)", envRestore)
+			}
+		} else {
+			cfg.Restore = val
+		}
 	}
 
 	return cfg, nil

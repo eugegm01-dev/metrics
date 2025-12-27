@@ -1,25 +1,52 @@
-# Binaries for programs and plugins
+# Go binaries and build artifacts
 *.exe
 *.exe~
-*.dll
-*.so
-*.dylib
-
-# Test binary, built with `go test -c`
+server
+agent
 *.test
-
-# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+*.prof
 
-# Binaries
-cmd/agent/main
+# Common Go build output names (when using -o without extension)
+main
+agent
+server
+collector
+sender
+
+# When building from subdirectories (cmd/agent, cmd/server etc.)
 cmd/agent/agent
-cmd/server/main
+cmd/agent/main
 cmd/server/server
+cmd/server/main
 
-# Dependency directories (remove the comment below to include it)
+# Dependency directories
 vendor/
 
-# IDEs directories
-.idea
-.vscode
+# Go workspaces and modules cache (usually not needed, but sometimes appear)
+go.work
+go.work.sum
+
+# Test coverage and profiling
+coverage.*
+*.coverprofile
+*.cpu.pprof
+*.mem.pprof
+
+# Temporary files
+*.tmp
+*.bak
+*~
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS junk
+.DS_Store
+
+# Windows junk
+Thumbs.db
+ehthumbs.db
