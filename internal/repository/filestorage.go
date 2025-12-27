@@ -11,7 +11,7 @@ import (
 
 // FileStorage — обёртка над MemStorage с сохранением в файл
 type FileStorage struct {
-	*MemStorage   // встроенное поле — все операции с метриками делегируются сюда
+	*MemStorage   // встроенное поле — делегируем все операции с данными
 	filePath      string
 	storeInterval time.Duration
 	saveChan      chan struct{}
@@ -19,7 +19,7 @@ type FileStorage struct {
 	lastSaved     time.Time
 }
 
-// NewFileStorage создаёт файловое хранилище на основе in-memory
+// NewFileStorage создаёт файловое хранилище
 func NewFileStorage(filePath string, storeInterval time.Duration, restore bool) (*FileStorage, error) {
 	mem := NewMemStorage()
 	storage := &FileStorage{
@@ -31,16 +31,16 @@ func NewFileStorage(filePath string, storeInterval time.Duration, restore bool) 
 		lastSaved:     time.Now(),
 	}
 
-	// Загружаем данные один раз при создании (если restore == true)
+	// Одноразовая загрузка при старте
 	if restore {
 		if err := storage.loadFromFile(); err != nil {
 			fmt.Printf("WARNING: Failed to load metrics from file: %v\n", err)
-			// Можно также вернуть ошибку, если загрузка обязательна:
+			// Для строгого режима можно вернуть ошибку:
 			// return nil, fmt.Errorf("failed to load metrics: %w", err)
 		}
 	}
 
-	// Запускаем периодическое сохранение
+	// Периодическое сохранение
 	if storeInterval > 0 {
 		go storage.periodicSave()
 	}
@@ -48,7 +48,7 @@ func NewFileStorage(filePath string, storeInterval time.Duration, restore bool) 
 	return storage, nil
 }
 
-// loadFromFile — внутренняя загрузка (не экспортируется)
+// loadFromFile — приватная загрузка (вызывается только при создании)
 func (s *FileStorage) loadFromFile() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -56,19 +56,18 @@ func (s *FileStorage) loadFromFile() error {
 	file, err := os.Open(s.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // файл не существует — нормальная ситуация
+			return nil // файл отсутствует — ок
 		}
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
 	var metrics []models.Metrics
-	decoder := json.NewDecoder(file)
-	if err := decoder.Decode(&metrics); err != nil {
+	if err := json.NewDecoder(file).Decode(&metrics); err != nil {
 		return fmt.Errorf("failed to decode metrics: %w", err)
 	}
 
-	// Очищаем текущее состояние
+	// Сбрасываем текущее состояние
 	s.Gauges = make(map[string]float64)
 	s.Counters = make(map[string]int64)
 
@@ -89,35 +88,35 @@ func (s *FileStorage) loadFromFile() error {
 	return nil
 }
 
-// saveToFile — внутренняя запись (не экспортируется)
+// saveToFile — приватная запись
 func (s *FileStorage) saveToFile() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	metrics := s.GetAllMetricsForSave()
 	tempFile := s.filePath + ".tmp"
-	file, err := os.Create(tempFile)
+	f, err := os.Create(tempFile)
 	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
+		return fmt.Errorf("create temp file: %w", err)
 	}
-	defer file.Close()
+	defer f.Close()
 
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", " ")
-	if err := encoder.Encode(metrics); err != nil {
-		return fmt.Errorf("failed to encode metrics: %w", err)
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", " ")
+	if err := enc.Encode(metrics); err != nil {
+		return fmt.Errorf("encode metrics: %w", err)
 	}
-	file.Close()
+	f.Close()
 
 	if err := os.Rename(tempFile, s.filePath); err != nil {
-		return fmt.Errorf("failed to rename temp file: %w", err)
+		return fmt.Errorf("rename temp file: %w", err)
 	}
 
 	s.lastSaved = time.Now()
 	return nil
 }
 
-// periodicSave — горутина для периодического сохранения
+// periodicSave — фоновая горутина
 func (s *FileStorage) periodicSave() {
 	ticker := time.NewTicker(s.storeInterval)
 	defer ticker.Stop()
@@ -133,19 +132,23 @@ func (s *FileStorage) periodicSave() {
 				fmt.Printf("ERROR: Failed to save metrics: %v\n", err)
 			}
 		case <-s.stopChan:
-			// финальное сохранение при закрытии
-			s.saveToFile()
+			s.saveToFile() // финальное сохранение
 			return
 		}
 	}
 }
 
-// Close — завершает работу и делает финальное сохранение
+// SaveToFile — публичный метод (для metricstest и эндпоинта /save)
+func (s *FileStorage) SaveToFile() error {
+	return s.saveToFile()
+}
+
+// Close — завершает работу с финальным сохранением
 func (s *FileStorage) Close() {
 	close(s.stopChan)
 }
 
-// GetAllMetricsForSave — вспомогательный метод для сериализации (остаётся приватным)
+// GetAllMetricsForSave — приватный вспомогательный метод
 func (s *FileStorage) GetAllMetricsForSave() []models.Metrics {
 	var metrics []models.Metrics
 	for name, value := range s.Gauges {
