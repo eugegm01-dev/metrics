@@ -3,37 +3,33 @@
 *.exe~
 server
 agent
+main
+collector
+sender
 *.test
 *.out
 *.prof
 
-# Common Go build output names (when using -o without extension)
-main
-agent
-server
-collector
-sender
-
-# When building from subdirectories (cmd/agent, cmd/server etc.)
-cmd/agent/agent
-cmd/agent/main
-cmd/server/server
-cmd/server/main
+# Common build outputs from cmd subdirs
+cmd/*/main
+cmd/*/agent
+cmd/*/server
 
 # Dependency directories
 vendor/
 
-# Go workspaces and modules cache (usually not needed, but sometimes appear)
+# Go modules cache and workspaces
 go.work
 go.work.sum
+go.sum  # optional: if you want to ignore it (usually commit)
 
-# Test coverage and profiling
+# Test coverage, profiling, benchmarks
 coverage.*
 *.coverprofile
 *.cpu.pprof
 *.mem.pprof
 
-# Temporary files
+# Temporary files and backups
 *.tmp
 *.bak
 *~
@@ -44,9 +40,9 @@ coverage.*
 *.swp
 *.swo
 
-# macOS junk
+# macOS
 .DS_Store
 
-# Windows junk
+# Windows
 Thumbs.db
 ehthumbs.db
