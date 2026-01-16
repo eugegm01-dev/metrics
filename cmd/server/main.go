@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	_ "github.com/lib/pq"
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
@@ -32,6 +35,16 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to parse config", zap.Error(err))
 	}
+	db, err := sql.Open("postgres", cfg.DatabaseDSN)
+	if err != nil {
+		logger.Fatal("Failed to open database", zap.Error(err))
+	}
+
+	if err := db.Ping(); err != nil {
+		logger.Fatal("Failed to connect to database", zap.Error(err))
+	}
+
+	logger.Info("Connected to PostgreSQL successfully")
 
 	// Логируем конфигурацию сервера
 	logger.Info("Server configuration",
@@ -57,6 +70,16 @@ func main() {
 	r.Use(middleware.LoggingMiddleware(logger))
 
 	// Роуты
+	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+		if err := db.Ping(); err != nil {
+			logger.Error("Database ping failed", zap.Error(err))
+			http.Error(w, "database unavailable", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("pong"))
+	})
+
 	r.Get("/", handler.IndexHTMLHandler(storage))
 	r.Post("/update/{type}/{name}/{value}", handler.UpdateHandler(storage))
 	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage))

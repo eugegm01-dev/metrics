@@ -14,6 +14,7 @@ type ServerConfig struct {
 	StoreInterval   time.Duration
 	FileStoragePath string
 	Restore         bool
+	DatabaseDSN     string
 }
 
 func ParseServerConfig() (*ServerConfig, error) {
@@ -21,6 +22,8 @@ func ParseServerConfig() (*ServerConfig, error) {
 	var flagStoreInterval int
 	var flagFileStoragePath string
 	var flagRestore bool
+	var flagDSN string
+	flag.StringVar(&flagDSN, "d", "", "PostgreSQL DSN")
 
 	flag.StringVar(&flagRunAddr, "a", "localhost:8080", "адрес и порт для запуска сервера")
 	flag.IntVar(&flagStoreInterval, "i", 300, "интервал сохранения метрик на диск в секундах (0 - синхронная запись)")
@@ -34,6 +37,7 @@ func ParseServerConfig() (*ServerConfig, error) {
 		StoreInterval:   time.Duration(flagStoreInterval) * time.Second,
 		FileStoragePath: flagFileStoragePath,
 		Restore:         flagRestore,
+		DatabaseDSN:     flagDSN,
 	}
 
 	// Приоритет: переменные окружения > флаги > дефолт
@@ -41,6 +45,10 @@ func ParseServerConfig() (*ServerConfig, error) {
 	// ADDRESS
 	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
 		cfg.Addr = envAddr
+
+	}
+	if envDSN := os.Getenv("DATABASE_DSN"); envDSN != "" {
+		cfg.DatabaseDSN = envDSN
 	}
 
 	// STORE_INTERVAL — Fail early: если переменная есть — парсим строго

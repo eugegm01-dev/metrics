@@ -1,4 +1,4 @@
-# Go binaries and build artifacts
+# Go build artifacts (бинарники)
 *.exe
 *.exe~
 server
@@ -10,7 +10,7 @@ sender
 *.out
 *.prof
 
-# Common build outputs from cmd subdirs
+# Common build outputs from cmd
 cmd/*/main
 cmd/*/agent
 cmd/*/server
@@ -18,31 +18,18 @@ cmd/*/server
 # Dependency directories
 vendor/
 
-# Go modules cache and workspaces
-go.work
-go.work.sum
-go.sum  # optional: if you want to ignore it (usually commit)
-
-# Test coverage, profiling, benchmarks
-coverage.*
-*.coverprofile
-*.cpu.pprof
-*.mem.pprof
-
-# Temporary files and backups
+# Temporary files
 *.tmp
 *.bak
 *~
 
-# IDE and editor files
+# IDE files
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# macOS
+# macOS/Windows junk
 .DS_Store
-
-# Windows
 Thumbs.db
 ehthumbs.db
