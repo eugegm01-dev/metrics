@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
@@ -22,6 +23,12 @@ type FileStorage struct {
 // NewFileStorage создаёт файловое хранилище
 func NewFileStorage(filePath string, storeInterval time.Duration, restore bool) (*FileStorage, error) {
 	mem := NewMemStorage()
+	// Если путь пустой или не указан, используем временную директорию
+	if filePath == "" {
+		// Создаём файл во временной директории
+		filePath = filepath.Join(os.TempDir(), "metrics-db.json")
+	}
+
 	storage := &FileStorage{
 		MemStorage:    mem,
 		filePath:      filePath,
@@ -90,6 +97,16 @@ func (s *FileStorage) loadFromFile() error {
 
 // saveToFile — приватная запись
 func (s *FileStorage) saveToFile() error {
+	if s.filePath == "" {
+		return nil // Просто игнорируем, если путь не указан
+	}
+
+	// Создаём директорию, если её нет
+	dir := filepath.Dir(s.filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

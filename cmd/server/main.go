@@ -35,16 +35,6 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to parse config", zap.Error(err))
 	}
-	db, err := sql.Open("postgres", cfg.DatabaseDSN)
-	if err != nil {
-		logger.Fatal("Failed to open database", zap.Error(err))
-	}
-
-	if err := db.Ping(); err != nil {
-		logger.Fatal("Failed to connect to database", zap.Error(err))
-	}
-
-	logger.Info("Connected to PostgreSQL successfully")
 
 	// Логируем конфигурацию сервера
 	logger.Info("Server configuration",
@@ -52,10 +42,34 @@ func main() {
 		zap.Duration("store_interval", cfg.StoreInterval),
 		zap.String("file_storage_path", cfg.FileStoragePath),
 		zap.Bool("restore", cfg.Restore),
+		zap.String("database_dsn", cfg.DatabaseDSN),
 	)
 
-	// Создаём хранилище
-	storage, err := repository.NewStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
+	var db *sql.DB
+	var storage repository.Storage
+
+	// Пытаемся подключиться к PostgreSQL, если указан DSN
+	if cfg.DatabaseDSN != "" {
+		var dbErr error
+		db, dbErr = sql.Open("postgres", cfg.DatabaseDSN)
+		if dbErr != nil {
+			logger.Error("Failed to open database connection, using memory storage",
+				zap.Error(dbErr))
+		} else {
+			// Проверяем подключение
+			if pingErr := db.Ping(); pingErr != nil {
+				logger.Error("Database ping failed, using memory storage",
+					zap.Error(pingErr))
+			} else {
+				logger.Info("Connected to PostgreSQL successfully")
+				// TODO: Здесь должна быть реализация PGStorage
+				// Пока используем memory storage
+			}
+		}
+	}
+
+	// Создаём хранилище (in-memory, так как PGStorage еще не реализован)
+	storage, err = repository.NewStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
 	if err != nil {
 		logger.Fatal("Failed to create storage", zap.Error(err))
 	}
@@ -71,10 +85,12 @@ func main() {
 
 	// Роуты
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
-		if err := db.Ping(); err != nil {
-			logger.Error("Database ping failed", zap.Error(err))
-			http.Error(w, "database unavailable", http.StatusInternalServerError)
-			return
+		if db != nil {
+			if err := db.Ping(); err != nil {
+				logger.Error("Database ping failed", zap.Error(err))
+				http.Error(w, "database unavailable", http.StatusInternalServerError)
+				return
+			}
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("pong"))
@@ -85,10 +101,10 @@ func main() {
 	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage))
 
 	r.Post("/update", handler.UpdateJSONHandler(storage))
-	r.Post("/update/", handler.UpdateJSONHandler(storage)) // совместимость
+	r.Post("/update/", handler.UpdateJSONHandler(storage))
 
 	r.Post("/value", handler.ValueJSONHandler(storage))
-	r.Post("/value/", handler.ValueJSONHandler(storage)) // совместимость
+	r.Post("/value/", handler.ValueJSONHandler(storage))
 
 	// Принудительное сохранение метрик в файл (удобно для тестов и отладки)
 	r.Post("/save", func(w http.ResponseWriter, r *http.Request) {

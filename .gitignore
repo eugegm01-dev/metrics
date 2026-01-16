@@ -22,6 +22,9 @@ vendor/
 *.tmp
 *.bak
 *~
+*.json
+metrics-db.json
+
 
 # IDE files
 .idea/
