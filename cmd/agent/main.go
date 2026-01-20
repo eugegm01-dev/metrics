@@ -51,9 +51,12 @@ func main() {
 			logger.Debug("Report tick → sending metrics")
 			if len(currentMetrics) > 0 {
 				preparedMetrics := agentInstance.PrepareMetricsForSend(currentMetrics) // корректируем Delta
-				// Используем новую функцию для батчевой отправки
+				// Используем новую функцию для батчевой отправки с retry
 				if err := agent.SendMetricsBatch(cfg.ServerAddr, preparedMetrics); err != nil {
-					logger.Error("Failed to send metrics to server", zap.Error(err))
+					logger.Error("Failed to send metrics to server after retries",
+						zap.Error(err),
+						zap.Int("metrics_count", len(preparedMetrics)),
+					)
 				} else {
 					logger.Info("Metrics successfully sent as batch",
 						zap.Int("metrics_count", len(preparedMetrics)),
