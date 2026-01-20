@@ -27,7 +27,7 @@ func ParseServerConfig() (*ServerConfig, error) {
 
 	flag.StringVar(&flagRunAddr, "a", "localhost:8080", "адрес и порт для запуска сервера")
 	flag.IntVar(&flagStoreInterval, "i", 300, "интервал сохранения метрик на диск в секундах (0 - синхронная запись)")
-	flag.StringVar(&flagFileStoragePath, "f", "", "путь к файлу для сохранения метрик")
+	flag.StringVar(&flagFileStoragePath, "f", "/tmp/metrics-db.json", "путь к файлу для сохранения метрик")
 	flag.BoolVar(&flagRestore, "r", true, "загружать сохранённые метрики при старте")
 
 	flag.Parse()

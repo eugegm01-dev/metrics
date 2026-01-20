@@ -1,14 +1,18 @@
 package repository
 
-import "time"
+import (
+	"database/sql"
+	"time"
+)
 
-// NewStorage создает хранилище в зависимости от параметров
-func NewStorage(filePath string, storeInterval time.Duration, restore bool) (Storage, error) {
+func NewStorage(filePath string, storeInterval time.Duration, restore bool, db *sql.DB) (Storage, error) {
+	if db != nil {
+		return NewPGStorage(db)
+	}
+
 	if filePath == "" {
-		// Если путь к файлу не указан, используем память
 		return NewMemStorage(), nil
 	}
 
-	// Иначе создаем файловое хранилище
 	return NewFileStorage(filePath, storeInterval, restore)
 }

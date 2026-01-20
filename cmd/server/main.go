@@ -48,28 +48,32 @@ func main() {
 	var db *sql.DB
 	var storage repository.Storage
 
-	// Пытаемся подключиться к PostgreSQL, если указан DSN
+	// Приоритет 1: PostgreSQL (если указан DSN)
 	if cfg.DatabaseDSN != "" {
 		var dbErr error
 		db, dbErr = sql.Open("postgres", cfg.DatabaseDSN)
 		if dbErr != nil {
-			logger.Error("Failed to open database connection, using memory storage",
+			logger.Error("Failed to open database connection, falling back to file/memory storage",
 				zap.Error(dbErr))
+			db = nil
 		} else {
 			// Проверяем подключение
 			if pingErr := db.Ping(); pingErr != nil {
-				logger.Error("Database ping failed, using memory storage",
+				logger.Error("Database ping failed, falling back to file/memory storage",
 					zap.Error(pingErr))
+				db.Close()
+				db = nil
 			} else {
 				logger.Info("Connected to PostgreSQL successfully")
-				// TODO: Здесь должна быть реализация PGStorage
-				// Пока используем memory storage
 			}
 		}
 	}
 
-	// Создаём хранилище (in-memory, так как PGStorage еще не реализован)
-	storage, err = repository.NewStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
+	// Создаём хранилище с учётом приоритетов из ТЗ:
+	// 1. PostgreSQL (если db != nil)
+	// 2. Файловое хранилище (если указан filePath)
+	// 3. In-memory хранилище (во всех остальных случаях)
+	storage, err = repository.NewStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore, db)
 	if err != nil {
 		logger.Fatal("Failed to create storage", zap.Error(err))
 	}
