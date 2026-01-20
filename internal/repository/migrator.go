@@ -3,8 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
-	"os" // <-- Используем вместо ioutil
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -20,12 +19,14 @@ func NewMigrator(db *sql.DB) *Migrator {
 }
 
 func (m *Migrator) Migrate(migrationsDir string) error {
-	// ... (код создания таблицы и запроса applied остается без изменений) ...
-
-	// Читаем файлы миграций (ИСПРАВЛЕНО)
-	entries, err := os.ReadDir(migrationsDir) // <-- Замена ioutil.ReadDir
+	// Создаем таблицу для отслеживания миграций
+	_, err := m.db.Exec(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version BIGINT PRIMARY KEY
+        );
+    `)
 	if err != nil {
-		return fmt.Errorf("failed to read migrations directory: %w", err)
+		return fmt.Errorf("failed to create schema_migrations table: %w", err)
 	}
 
 	// Получаем список примененных миграций
@@ -43,9 +44,13 @@ func (m *Migrator) Migrate(migrationsDir string) error {
 		}
 		applied[version] = true
 	}
+	// Проверяем ошибки после итерации
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error during rows iteration: %w", err)
+	}
 
 	// Читаем файлы миграций
-	files, err := ioutil.ReadDir(migrationsDir)
+	files, err := os.ReadDir(migrationsDir)
 	if err != nil {
 		return fmt.Errorf("failed to read migrations directory: %w", err)
 	}
@@ -78,7 +83,7 @@ func (m *Migrator) Migrate(migrationsDir string) error {
 		}
 
 		path := filepath.Join(migrationsDir, filename)
-		sqlBytes, err := os.ReadFile(path) // <-- Замена ioutil.ReadFile
+		sqlBytes, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("failed to read migration file %s: %w", path, err)
 		}
