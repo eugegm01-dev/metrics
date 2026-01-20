@@ -14,9 +14,10 @@ type PGStorage struct {
 func NewPGStorage(db *sql.DB) (*PGStorage, error) {
 	migrator := NewMigrator(db)
 	if err := migrator.Migrate("migrations"); err != nil {
-		return nil, fmt.Errorf("failed to apply migrations: %w", err)
+		// Вместо возврата ошибки просто логируем предупреждение
+		fmt.Printf("WARNING: Failed to apply migrations: %v\n", err)
+		// Продолжаем создание хранилища (возможно, БД временно недоступна)
 	}
-
 	return &PGStorage{db: db}, nil
 }
 

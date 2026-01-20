@@ -57,12 +57,12 @@ func main() {
 				zap.Error(dbErr))
 			db = nil
 		} else {
-			// Проверяем подключение
+			// Проверяем подключение, но НЕ обнуляем db в случае ошибки
 			if pingErr := db.Ping(); pingErr != nil {
-				logger.Error("Database ping failed, falling back to file/memory storage",
+				logger.Error("Database ping failed, but will continue with PostgreSQL storage",
 					zap.Error(pingErr))
-				db.Close()
-				db = nil
+				// Важно: НЕ закрываем и НЕ обнуляем db!
+				// Оставляем объект для последующих попыток ping
 			} else {
 				logger.Info("Connected to PostgreSQL successfully")
 			}
@@ -90,17 +90,14 @@ func main() {
 	// Роуты
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		if db != nil {
-			// Пытаемся проверить соединение. Если БД указана, но недоступна - это ошибка.
 			if err := db.Ping(); err != nil {
 				logger.Error("Database ping failed in handler", zap.Error(err))
 				http.Error(w, "database unavailable", http.StatusInternalServerError)
 				return
 			}
-			// БД доступна
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("pong"))
 		} else {
-			// Режим работы без БД (память или файл). Считаем, что сервер "живой".
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("pong"))
 		}
