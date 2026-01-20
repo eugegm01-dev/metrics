@@ -59,3 +59,43 @@ func SendMetrics(serverAddr string, metrics []models.Metrics) error {
 	}
 	return nil
 }
+
+// SendMetricsBatch отправляет метрики батчами
+func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
+	if len(metrics) == 0 {
+		return nil // не отправляем пустые батчи
+	}
+
+	jsonData, err := json.Marshal(metrics)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metrics: %w", err)
+	}
+
+	gzData, err := gzipData(jsonData)
+	if err != nil {
+		return fmt.Errorf("failed to gzip data: %w", err)
+	}
+
+	url := "http://" + serverAddr + "/updates"
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(gzData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned status: %d", resp.StatusCode)
+	}
+
+	return nil
+}

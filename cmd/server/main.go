@@ -113,6 +113,9 @@ func main() {
 	r.Post("/value", handler.ValueJSONHandler(storage))
 	r.Post("/value/", handler.ValueJSONHandler(storage))
 
+	r.Post("/updates", handler.UpdatesHandler(storage))
+	r.Post("/updates/", handler.UpdatesHandler(storage))
+
 	// Принудительное сохранение метрик в файл (удобно для тестов и отладки)
 	r.Post("/save", func(w http.ResponseWriter, r *http.Request) {
 		if err := storage.SaveToFile(); err != nil {

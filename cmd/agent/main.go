@@ -51,11 +51,12 @@ func main() {
 			logger.Debug("Report tick → sending metrics")
 			if len(currentMetrics) > 0 {
 				preparedMetrics := agentInstance.PrepareMetricsForSend(currentMetrics) // корректируем Delta
-				if err := agent.SendMetrics(cfg.ServerAddr, preparedMetrics); err != nil {
+				// Используем новую функцию для батчевой отправки
+				if err := agent.SendMetricsBatch(cfg.ServerAddr, preparedMetrics); err != nil {
 					logger.Error("Failed to send metrics to server", zap.Error(err))
 				} else {
-					logger.Info("Metrics successfully sent",
-						zap.Int("metrics_count", len(currentMetrics)),
+					logger.Info("Metrics successfully sent as batch",
+						zap.Int("metrics_count", len(preparedMetrics)),
 					)
 				}
 				// PollCount накапливается, метрики не сбрасываем

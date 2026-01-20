@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
+
+	models "github.com/eugegm01-dev/metrics/internal/model"
 )
 
 type PGStorage struct {
@@ -131,7 +133,46 @@ func (s *PGStorage) GetAllMetrics() string {
 
 	return result
 }
+func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			_, err = tx.Exec(`
+                INSERT INTO gauges (name, value)
+                VALUES ($1, $2)
+                ON CONFLICT (name)
+                DO UPDATE SET value = $2
+            `, metric.ID, *metric.Value)
+		case models.Counter:
+			_, err = tx.Exec(`
+                INSERT INTO counters (name, value)
+                VALUES ($1, $2)
+                ON CONFLICT (name)
+                DO UPDATE SET value = counters.value + $2
+            `, metric.ID, *metric.Delta)
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to update metric %s: %w", metric.ID, err)
+		}
+	}
+
+	return tx.Commit()
+}
 func (s *PGStorage) SaveToFile() error {
 	return nil
 }
