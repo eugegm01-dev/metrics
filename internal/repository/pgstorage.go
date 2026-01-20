@@ -103,6 +103,10 @@ func (s *PGStorage) GetAllMetrics() string {
 		}
 		result += fmt.Sprintf(" %s: %f\n", name, value)
 	}
+	// ДОБАВЬТЕ ЭТУ ПРОВЕРКУ
+	if err := rows.Err(); err != nil {
+		result += fmt.Sprintf("Error iterating gauges: %v\n", err)
+	}
 
 	rows, err = s.db.Query("SELECT name, value FROM counters")
 	if err != nil {
@@ -118,6 +122,10 @@ func (s *PGStorage) GetAllMetrics() string {
 			continue
 		}
 		result += fmt.Sprintf(" %s: %d\n", name, value)
+	}
+	// ДОБАВЬТЕ ЭТУ ПРОВЕРКУ
+	if err := rows.Err(); err != nil {
+		result += fmt.Sprintf("Error iterating counters: %v\n", err)
 	}
 
 	return result

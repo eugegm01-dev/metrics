@@ -90,14 +90,20 @@ func main() {
 	// Роуты
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		if db != nil {
+			// Пытаемся проверить соединение. Если БД указана, но недоступна - это ошибка.
 			if err := db.Ping(); err != nil {
-				logger.Error("Database ping failed", zap.Error(err))
+				logger.Error("Database ping failed in handler", zap.Error(err))
 				http.Error(w, "database unavailable", http.StatusInternalServerError)
 				return
 			}
+			// БД доступна
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("pong"))
+		} else {
+			// Режим работы без БД (память или файл). Считаем, что сервер "живой".
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("pong"))
 		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("pong"))
 	})
 
 	r.Get("/", handler.IndexHTMLHandler(storage))
