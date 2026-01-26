@@ -3,6 +3,7 @@ package agent
 import (
 	"math/rand"
 	"runtime"
+	"sync"
 	"sync/atomic"
 
 	"github.com/eugegm01-dev/metrics/internal/model"
@@ -12,6 +13,8 @@ import (
 type Agent struct {
 	pollCount         int64
 	lastSentPollCount int64
+	mu                sync.RWMutex
+	currentMetrics    []model.Metrics
 }
 
 // NewAgent создаёт новый экземпляр агента
@@ -19,7 +22,22 @@ func NewAgent() *Agent {
 	return &Agent{
 		pollCount:         0,
 		lastSentPollCount: 0,
+		currentMetrics:    make([]model.Metrics, 0),
 	}
+}
+
+// SetCurrentMetrics безопасно устанавливает текущие метрики
+func (a *Agent) SetCurrentMetrics(metrics []model.Metrics) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.currentMetrics = metrics
+}
+
+// GetCurrentMetrics безопасно получает текущие метрики
+func (a *Agent) GetCurrentMetrics() []model.Metrics {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.currentMetrics
 }
 
 // IncrementPollCount атомарно увеличивает счётчик опросов
@@ -32,7 +50,7 @@ func (a *Agent) GetPollCount() int64 {
 	return atomic.LoadInt64(&a.pollCount)
 }
 
-// collectRuntimeMetrics — внутренняя функция для сбора runtime-метрик (перенесено из collector.go)
+// collectRuntimeMetrics собирает runtime-метрики
 func collectRuntimeMetrics() []model.Metrics {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
@@ -76,13 +94,14 @@ func (a *Agent) CollectMetrics() []model.Metrics {
 
 	metrics := collectRuntimeMetrics()
 
-	// Добавляем PollCount с абсолютным значением (потом корректируется delta)
+	// Добавляем PollCount с абсолютным значением
 	metrics = append(metrics, model.Metrics{
 		ID:    "PollCount",
 		MType: model.Counter,
 		Delta: int64Ptr(a.GetPollCount()),
 	})
 
+	a.SetCurrentMetrics(metrics)
 	return metrics
 }
 
@@ -99,5 +118,6 @@ func (a *Agent) PrepareMetricsForSend(metrics []model.Metrics) []model.Metrics {
 	return metrics
 }
 
+// Вспомогательные функции для создания указателей
 func float64Ptr(f float64) *float64 { return &f }
 func int64Ptr(i int64) *int64       { return &i }

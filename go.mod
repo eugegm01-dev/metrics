@@ -7,7 +7,6 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgx/v5 v5.8.0
-	github.com/lib/pq v1.10.9
 	github.com/pressly/goose/v3 v3.26.0
 	go.uber.org/zap v1.27.1
 )

@@ -1,210 +1,174 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
-	"sync"
+	"log"
 	"time"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/pressly/goose/v3"
 )
 
 type PGStorage struct {
-	mu sync.RWMutex
 	db *sql.DB
 }
 
 func NewPGStorage(db *sql.DB) (*PGStorage, error) {
-	// Пытаемся применить миграции с retry
-	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
-
-	var migratorErr error
-	for attempt := 0; attempt <= 3; attempt++ {
-		if attempt > 0 {
-			time.Sleep(delays[attempt-1])
-		}
-
-		migrator := NewMigrator(db)
-		if err := migrator.Migrate("migrations"); err != nil {
-			migratorErr = err
-			fmt.Printf("Migration attempt %d failed: %v\n", attempt+1, err)
-
-			// Проверяем, нужно ли повторять
-			classifier := NewPostgresErrorClassifier()
-			if classifier.Classify(err) != Retriable {
-				break
-			}
-
-			if attempt < 3 {
-				fmt.Printf("Retrying migration in %v...\n", delays[attempt])
-			}
-		} else {
-			migratorErr = nil
-			break
-		}
+	if err := goose.Up(db, "migrations"); err != nil {
+		return nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
-	if migratorErr != nil {
-		fmt.Printf("WARNING: Failed to apply migrations: %v\n", migratorErr)
-		// Продолжаем создание хранилища (возможно, БД временно недоступна)
-	}
-
+	log.Println("PostgreSQL migrations applied successfully")
 	return &PGStorage{db: db}, nil
 }
 
-func (s *PGStorage) execWithRetry(query string, args ...interface{}) (sql.Result, error) {
+// executeWithRetry выполняет операцию с ретраями для retryable ошибок
+func (s *PGStorage) executeWithRetry(ctx context.Context, operation func() error) error {
 	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 
-	//var result sql.Result
-	var lastErr error
-
-	classifier := NewPostgresErrorClassifier()
-
-	for attempt := 0; attempt <= 3; attempt++ {
-		if attempt > 0 {
-			time.Sleep(delays[attempt-1])
-		}
-
-		res, err := s.db.Exec(query, args...)
+	for attempt := 0; attempt <= len(delays); attempt++ {
+		err := operation()
 		if err == nil {
-			return res, nil
+			return nil
 		}
 
-		lastErr = err
-
-		// Проверяем, нужно ли повторять
-		if classifier.Classify(err) != Retriable {
-			return nil, fmt.Errorf("non-retryable error: %w", err)
+		// Проверяем, является ли ошибка retryable
+		if !isRetryableError(err) {
+			return fmt.Errorf("non-retryable error: %w", err)
 		}
 
-		if attempt < 3 {
-			fmt.Printf("Retryable PostgreSQL error occurred (attempt %d/3): %v. Retrying in %v...\n",
-				attempt+1, err, delays[attempt])
+		if attempt == len(delays) {
+			break
+		}
+
+		// Используем Timer с поддержкой контекста
+		timer := time.NewTimer(delays[attempt])
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+			// Продолжаем со следующей попыткой
 		}
 	}
 
-	return nil, fmt.Errorf("failed after 3 retries: %w", lastErr)
+	return fmt.Errorf("operation failed after %d retries", len(delays))
 }
 
-func (s *PGStorage) queryRowWithRetry(query string, args ...interface{}) *sql.Row {
-	// Для QueryRow не можем легко сделать retry, так как возвращается Row
-	// Вместо этого будем использовать Query и сканировать результат
-	return s.db.QueryRow(query, args...)
-}
-
-func (s *PGStorage) queryWithRetry(query string, args ...interface{}) (*sql.Rows, error) {
-	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
-
-	//var rows *sql.Rows
-	var lastErr error
-
-	classifier := NewPostgresErrorClassifier()
-
-	for attempt := 0; attempt <= 3; attempt++ {
-		if attempt > 0 {
-			time.Sleep(delays[attempt-1])
-		}
-
-		r, err := s.db.Query(query, args...)
-		if err == nil {
-			return r, nil
-		}
-
-		lastErr = err
-
-		// Проверяем, нужно ли повторять
-		if classifier.Classify(err) != Retriable {
-			return nil, fmt.Errorf("non-retryable error: %w", err)
-		}
-
-		if attempt < 3 {
-			fmt.Printf("Retryable PostgreSQL error occurred (attempt %d/3): %v. Retrying in %v...\n",
-				attempt+1, err, delays[attempt])
+// isRetryableError проверяет, является ли ошибка PostgreSQL retryable
+func isRetryableError(err error) bool {
+	var pgErr *pgconn.PgError
+	if ok := errors.As(err, &pgErr); ok {
+		switch pgErr.Code {
+		case pgerrcode.ConnectionException,
+			pgerrcode.ConnectionDoesNotExist,
+			pgerrcode.ConnectionFailure,
+			pgerrcode.SQLClientUnableToEstablishSQLConnection,
+			pgerrcode.SQLServerRejectedEstablishmentOfSQLConnection,
+			pgerrcode.TransactionResolutionUnknown,
+			pgerrcode.SerializationFailure,
+			pgerrcode.DeadlockDetected:
+			return true
 		}
 	}
+	return false
+}
 
-	return nil, fmt.Errorf("failed after 3 retries: %w", lastErr)
+// executeInTransaction выполняет функцию в транзакции с ретраями
+func (s *PGStorage) executeInTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	return s.executeWithRetry(ctx, func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+
+		defer func() {
+			if p := recover(); p != nil {
+				tx.Rollback()
+				panic(p)
+			}
+		}()
+
+		if err := fn(tx); err != nil {
+			tx.Rollback()
+			return err
+		}
+
+		return tx.Commit()
+	})
 }
 
 func (s *PGStorage) UpdateGauge(name string, value float64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	_, err := s.execWithRetry(`
-        INSERT INTO gauges (name, value)
-        VALUES ($1, $2)
-        ON CONFLICT (name)
-        DO UPDATE SET value = $2
-    `, name, value)
-
-	if err != nil {
-		fmt.Printf("Failed to update gauge after retries: %v\n", err)
-	}
+	ctx := context.Background()
+	s.executeWithRetry(ctx, func() error {
+		_, err := s.db.ExecContext(ctx, `
+            INSERT INTO gauges (name, value)
+            VALUES ($1, $2)
+            ON CONFLICT (name)
+            DO UPDATE SET value = $2
+        `, name, value)
+		return err
+	})
 }
 
 func (s *PGStorage) UpdateCounter(name string, value int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	_, err := s.execWithRetry(`
-        INSERT INTO counters (name, value)
-        VALUES ($1, $2)
-        ON CONFLICT (name)
-        DO UPDATE SET value = counters.value + $2
-    `, name, value)
-
-	if err != nil {
-		fmt.Printf("Failed to update counter after retries: %v\n", err)
-	}
+	ctx := context.Background()
+	s.executeWithRetry(ctx, func() error {
+		_, err := s.db.ExecContext(ctx, `
+            INSERT INTO counters (name, value)
+            VALUES ($1, $2)
+            ON CONFLICT (name)
+            DO UPDATE SET value = counters.value + $2
+        `, name, value)
+		return err
+	})
 }
 
 func (s *PGStorage) GetGauge(name string) (float64, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	var value float64
-	err := s.queryRowWithRetry("SELECT value FROM gauges WHERE name = $1", name).Scan(&value)
+	err := s.db.QueryRowContext(context.Background(),
+		"SELECT value FROM gauges WHERE name = $1", name).Scan(&value)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, false
 		}
-		fmt.Printf("Failed to get gauge: %v\n", err)
+		log.Printf("Failed to get gauge: %v", err)
 		return 0, false
 	}
 	return value, true
 }
 
 func (s *PGStorage) GetCounter(name string) (int64, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	var value int64
-	err := s.queryRowWithRetry("SELECT value FROM counters WHERE name = $1", name).Scan(&value)
+	err := s.db.QueryRowContext(context.Background(),
+		"SELECT value FROM counters WHERE name = $1", name).Scan(&value)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, false
 		}
-		fmt.Printf("Failed to get counter: %v\n", err)
+		log.Printf("Failed to get counter: %v", err)
 		return 0, false
 	}
 	return value, true
 }
 
 func (s *PGStorage) GetAllMetrics() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	var result string
 
-	// Гарантируем закрытие rows
-	rows, err := s.queryWithRetry("SELECT name, value FROM gauges")
+	rows, err := s.db.Query("SELECT name, value FROM gauges")
 	if err != nil {
 		result += fmt.Sprintf("Error retrieving gauges: %v\n", err)
 	} else {
 		defer rows.Close()
-
 		result += "Gauges:\n"
 		for rows.Next() {
 			var name string
@@ -214,17 +178,13 @@ func (s *PGStorage) GetAllMetrics() string {
 			}
 			result += fmt.Sprintf(" %s: %f\n", name, value)
 		}
-		if err := rows.Err(); err != nil {
-			result += fmt.Sprintf("Error iterating gauges: %v\n", err)
-		}
 	}
 
-	rows, err = s.queryWithRetry("SELECT name, value FROM counters")
+	rows, err = s.db.Query("SELECT name, value FROM counters")
 	if err != nil {
 		result += fmt.Sprintf("Error retrieving counters: %v\n", err)
 	} else {
 		defer rows.Close()
-
 		result += "Counters:\n"
 		for rows.Next() {
 			var name string
@@ -234,59 +194,26 @@ func (s *PGStorage) GetAllMetrics() string {
 			}
 			result += fmt.Sprintf(" %s: %d\n", name, value)
 		}
-		if err := rows.Err(); err != nil {
-			result += fmt.Sprintf("Error iterating counters: %v\n", err)
-		}
 	}
 
 	return result
 }
 
 func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
-
-	var lastErr error
-	classifier := NewPostgresErrorClassifier()
-
-	for attempt := 0; attempt <= 3; attempt++ {
-		if attempt > 0 {
-			time.Sleep(delays[attempt-1])
-		}
-
-		tx, err := s.db.Begin()
-		if err != nil {
-			lastErr = err
-			if classifier.Classify(err) != Retriable {
-				return fmt.Errorf("non-retryable error starting transaction: %w", err)
-			}
-			if attempt < 3 {
-				fmt.Printf("Retryable error starting transaction (attempt %d/3): %v\n",
-					attempt+1, err)
-			}
-			continue
-		}
-
-		defer func() {
-			if lastErr != nil {
-				tx.Rollback()
-			}
-		}()
-
-		success := true
+	ctx := context.Background()
+	return s.executeInTransaction(ctx, func(tx *sql.Tx) error {
 		for _, metric := range metrics {
+			var err error
 			switch metric.MType {
 			case models.Gauge:
-				_, err = tx.Exec(`
+				_, err = tx.ExecContext(ctx, `
                     INSERT INTO gauges (name, value)
                     VALUES ($1, $2)
                     ON CONFLICT (name)
                     DO UPDATE SET value = $2
                 `, metric.ID, *metric.Value)
 			case models.Counter:
-				_, err = tx.Exec(`
+				_, err = tx.ExecContext(ctx, `
                     INSERT INTO counters (name, value)
                     VALUES ($1, $2)
                     ON CONFLICT (name)
@@ -295,33 +222,11 @@ func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
 			}
 
 			if err != nil {
-				lastErr = fmt.Errorf("failed to update metric %s: %w", metric.ID, err)
-				success = false
-				break
+				return fmt.Errorf("failed to update metric %s: %w", metric.ID, err)
 			}
 		}
-
-		if success {
-			if err := tx.Commit(); err != nil {
-				lastErr = err
-				if classifier.Classify(err) != Retriable {
-					return fmt.Errorf("non-retryable error committing transaction: %w", err)
-				}
-				if attempt < 3 {
-					fmt.Printf("Retryable error committing transaction (attempt %d/3): %v\n",
-						attempt+1, err)
-				}
-				continue
-			}
-			return nil
-		}
-	}
-
-	return fmt.Errorf("batch update failed after 3 retries: %w", lastErr)
-}
-
-func (s *PGStorage) SaveToFile() error {
-	return nil
+		return nil
+	})
 }
 
 func (s *PGStorage) Close() {

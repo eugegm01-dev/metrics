@@ -22,8 +22,6 @@ func (c *RetryableErrorClassifier) IsRetryableError(err error) bool {
 
 	// Проверяем сетевые ошибки
 	if netErr, ok := err.(net.Error); ok {
-		// Метод Temporary() устарел в Go 1.23 и удален в Go 1.24
-		// Используем только Timeout() проверку
 		if netErr.Timeout() {
 			return true
 		}
@@ -41,39 +39,48 @@ func (c *RetryableErrorClassifier) IsRetryableError(err error) bool {
 	return false
 }
 
-// Retry выполняет операцию с повторными попытками
+// Retry выполняет операцию с повторными попытками с поддержкой контекста
 func Retry(ctx context.Context, operation func() error, maxRetries int, delays ...time.Duration) error {
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+		// Проверяем контекст перед каждой попыткой
+		if ctx.Err() != nil {
+			return fmt.Errorf("operation cancelled: %w", ctx.Err())
 		}
 
-		if attempt > 0 {
-			time.Sleep(delays[attempt-1])
-		}
-
+		// Выполняем операцию
 		err := operation()
 		if err == nil {
 			return nil
 		}
 
 		lastErr = err
+		classifier := NewRetryableErrorClassifier()
 
 		// Проверяем, нужно ли повторять
-		classifier := NewRetryableErrorClassifier()
 		if !classifier.IsRetryableError(err) {
 			return fmt.Errorf("non-retryable error: %w", err)
 		}
 
-		// Для HTTP ошибок проверяем статус код
-		if attempt < maxRetries {
-			fmt.Printf("Retryable error occurred (attempt %d/%d): %v. Retrying in %v...\n",
-				attempt+1, maxRetries, err, delays[attempt])
+		// Если это последняя попытка, выходим
+		if attempt == maxRetries {
+			break
 		}
+
+		// Создаем таймер для задержки с поддержкой контекста
+		delay := delays[attempt]
+		timer := time.NewTimer(delay)
+
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("operation cancelled while waiting for retry: %w", ctx.Err())
+		case <-timer.C:
+			// Продолжаем со следующей попыткой
+		}
+
+		timer.Stop()
 	}
 
 	return fmt.Errorf("operation failed after %d attempts: %w", maxRetries, lastErr)

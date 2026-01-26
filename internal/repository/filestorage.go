@@ -42,8 +42,6 @@ func NewFileStorage(filePath string, storeInterval time.Duration, restore bool) 
 	if restore {
 		if err := storage.loadFromFile(); err != nil {
 			fmt.Printf("WARNING: Failed to load metrics from file: %v\n", err)
-			// Для строгого режима можно вернуть ошибку:
-			// return nil, fmt.Errorf("failed to load metrics: %w", err)
 		}
 	}
 

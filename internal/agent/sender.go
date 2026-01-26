@@ -7,10 +7,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
+	retryablehttp "github.com/hashicorp/go-retryablehttp"
 )
+
+// retryClient - клиент с автоматическими повторными попытками
+var retryClient *retryablehttp.Client
+
+func init() {
+	retryClient = retryablehttp.NewClient()
+	retryClient.RetryMax = 3
+	retryClient.RetryWaitMin = 1 * time.Second
+	retryClient.RetryWaitMax = 5 * time.Second
+	retryClient.HTTPClient = &http.Client{
+		Timeout: 10 * time.Second,
+	}
+}
 
 func gzipData(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
@@ -24,74 +39,12 @@ func gzipData(data []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// SendMetrics отправляет метрики с поддержкой retry
-func SendMetrics(serverAddr string, metrics []models.Metrics) error {
-	ctx := context.Background()
-	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
-
-	for _, metric := range metrics {
-		err := Retry(ctx, func() error {
-			return sendSingleMetric(serverAddr, metric)
-		}, 3, delays...)
-
-		if err != nil {
-			return fmt.Errorf("failed to send metric %s: %w", metric.ID, err)
-		}
-	}
-	return nil
-}
-
-// sendSingleMetric отправляет одну метрику
-func sendSingleMetric(serverAddr string, metric models.Metrics) error {
-	jsonData, err := json.Marshal(metric)
-	if err != nil {
-		return fmt.Errorf("failed to marshal metric: %w", err)
-	}
-
-	gzData, err := gzipData(jsonData)
-	if err != nil {
-		return fmt.Errorf("failed to gzip data: %w", err)
-	}
-
-	url := "http://" + serverAddr + "/update"
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(gzData))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Content-Encoding", "gzip")
-	req.Header.Set("Accept-Encoding", "gzip")
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned status: %d", resp.StatusCode)
-	}
-	return nil
-}
-
-// SendMetricsBatch отправляет метрики батчами с поддержкой retry
+// SendMetricsBatch отправляет метрики батчами с использованием go-retryablehttp
 func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
 	if len(metrics) == 0 {
 		return nil
 	}
 
-	ctx := context.Background()
-	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
-
-	return Retry(ctx, func() error {
-		return sendBatch(serverAddr, metrics)
-	}, 3, delays...)
-}
-
-// sendBatch отправляет батч метрик
-func sendBatch(serverAddr string, metrics []models.Metrics) error {
 	jsonData, err := json.Marshal(metrics)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metrics: %w", err)
@@ -102,8 +55,13 @@ func sendBatch(serverAddr string, metrics []models.Metrics) error {
 		return fmt.Errorf("failed to gzip data: %w", err)
 	}
 
-	url := "http://" + serverAddr + "/updates"
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(gzData))
+	// Используем url.JoinPath для безопасной конкатенации URL
+	fullURL, err := url.JoinPath("http://"+serverAddr, "/updates")
+	if err != nil {
+		return fmt.Errorf("failed to build URL: %w", err)
+	}
+
+	req, err := retryablehttp.NewRequest("POST", fullURL, bytes.NewBuffer(gzData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -112,10 +70,14 @@ func sendBatch(serverAddr string, metrics []models.Metrics) error {
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
 
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
+	// Используем контекст с таймаутом
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	resp, err := retryClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return fmt.Errorf("failed to send request after retries: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -123,5 +85,49 @@ func sendBatch(serverAddr string, metrics []models.Metrics) error {
 		return fmt.Errorf("server returned status: %d", resp.StatusCode)
 	}
 
+	return nil
+}
+
+// SendMetrics отправляет одиночные метрики (для обратной совместимости)
+func SendMetrics(serverAddr string, metrics []models.Metrics) error {
+	for _, metric := range metrics {
+		jsonData, err := json.Marshal(metric)
+		if err != nil {
+			return fmt.Errorf("failed to marshal metric: %w", err)
+		}
+
+		gzData, err := gzipData(jsonData)
+		if err != nil {
+			return fmt.Errorf("failed to gzip data: %w", err)
+		}
+
+		fullURL, err := url.JoinPath("http://"+serverAddr, "/update")
+		if err != nil {
+			return fmt.Errorf("failed to build URL: %w", err)
+		}
+
+		req, err := retryablehttp.NewRequest("POST", fullURL, bytes.NewBuffer(gzData))
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "gzip")
+		req.Header.Set("Accept-Encoding", "gzip")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		req = req.WithContext(ctx)
+
+		resp, err := retryClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send metric %s after retries: %w", metric.ID, err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("server returned status %d for metric %s", resp.StatusCode, metric.ID)
+		}
+	}
 	return nil
 }
