@@ -1,11 +1,19 @@
 package repository
 
+import "github.com/eugegm01-dev/metrics/internal/model"
+
+// Storage описывает общие операции хранилища
 type Storage interface {
 	UpdateGauge(name string, value float64)
 	UpdateCounter(name string, value int64)
 	GetGauge(name string) (float64, bool)
 	GetCounter(name string) (int64, bool)
 	GetAllMetrics() string
-	SaveToFile() error // ← обязательно для metricstest и /save
+	UpdateBatch(metrics []model.Metrics) error
 	Close()
+}
+
+// Saver описывает хранилище, которое умеет сохраняться на диск.
+type Saver interface {
+	SaveToFile() error
 }

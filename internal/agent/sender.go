@@ -7,7 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
+	"net/url"
+	"path"
+	"strings"
+
+	retryablehttp "github.com/hashicorp/go-retryablehttp"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
 )
@@ -24,47 +28,49 @@ func gzipData(data []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// SendMetrics отправляет метрики с поддержкой retry
-func SendMetrics(serverAddr string, metrics []models.Metrics) error {
-	ctx := context.Background()
-	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
-
+// SendMetrics отправляет метрики по одной, используя retryClient.
+// Теперь принимает ctx, чтобы можно было отменять при shutdown.
+func SendMetrics(ctx context.Context, serverAddr string, metrics []models.Metrics) error {
 	for _, metric := range metrics {
-		err := Retry(ctx, func() error {
-			return sendSingleMetric(serverAddr, metric)
-		}, 3, delays...)
-
-		if err != nil {
+		if err := sendSingleMetric(ctx, serverAddr, metric); err != nil {
 			return fmt.Errorf("failed to send metric %s: %w", metric.ID, err)
 		}
 	}
 	return nil
 }
 
-// sendSingleMetric отправляет одну метрику
-func sendSingleMetric(serverAddr string, metric models.Metrics) error {
+// sendSingleMetric отправляет одну метрику через retryClient
+func sendSingleMetric(ctx context.Context, serverAddr string, metric models.Metrics) error {
 	jsonData, err := json.Marshal(metric)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metric: %w", err)
 	}
-
 	gzData, err := gzipData(jsonData)
 	if err != nil {
 		return fmt.Errorf("failed to gzip data: %w", err)
 	}
 
-	url := "http://" + serverAddr + "/update"
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(gzData))
+	base := serverAddr
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "http://" + base
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return fmt.Errorf("invalid server address %q: %w", serverAddr, err)
+	}
+	// корректно объединяем путь, учитывая существующий u.Path
+	u.Path = path.Join(u.Path, "update")
+	req, err := retryablehttp.NewRequest("POST", u.String(), gzData)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
+	req = req.WithContext(ctx)
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
 
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := retryClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
@@ -76,22 +82,17 @@ func sendSingleMetric(serverAddr string, metric models.Metrics) error {
 	return nil
 }
 
-// SendMetricsBatch отправляет метрики батчами с поддержкой retry
-func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
+// SendMetricsBatch отправляет метрики батчем через retryClient.
+// Принимает ctx для корректного прерывания.
+func SendMetricsBatch(ctx context.Context, serverAddr string, metrics []models.Metrics) error {
 	if len(metrics) == 0 {
 		return nil
 	}
-
-	ctx := context.Background()
-	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
-
-	return Retry(ctx, func() error {
-		return sendBatch(serverAddr, metrics)
-	}, 3, delays...)
+	return sendBatch(ctx, serverAddr, metrics)
 }
 
-// sendBatch отправляет батч метрик
-func sendBatch(serverAddr string, metrics []models.Metrics) error {
+// sendBatch отправляет батч метрик через retryClient
+func sendBatch(ctx context.Context, serverAddr string, metrics []models.Metrics) error {
 	jsonData, err := json.Marshal(metrics)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metrics: %w", err)
@@ -102,18 +103,26 @@ func sendBatch(serverAddr string, metrics []models.Metrics) error {
 		return fmt.Errorf("failed to gzip data: %w", err)
 	}
 
-	url := "http://" + serverAddr + "/updates"
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(gzData))
+	base := serverAddr
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "http://" + base
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return fmt.Errorf("invalid server address %q: %w", serverAddr, err)
+	}
+	u.Path = path.Join(u.Path, "updates")
+	req, err := retryablehttp.NewRequest("POST", u.String(), gzData)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
+	req = req.WithContext(ctx)
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
 
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := retryClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
@@ -122,6 +131,5 @@ func sendBatch(serverAddr string, metrics []models.Metrics) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("server returned status: %d", resp.StatusCode)
 	}
-
 	return nil
 }
