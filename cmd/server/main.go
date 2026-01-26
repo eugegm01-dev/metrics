@@ -13,10 +13,10 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/eugegm01-dev/metrics/pkg/app"
-	"github.com/eugegm01-dev/metrics/pkg/config"
-	"github.com/eugegm01-dev/metrics/pkg/repository"
-	"github.com/eugegm01-dev/metrics/pkg/server"
+	"github.com/eugegm01-dev/metrics/internal/app"
+	"github.com/eugegm01-dev/metrics/internal/config"
+	"github.com/eugegm01-dev/metrics/internal/repository"
+	"github.com/eugegm01-dev/metrics/internal/server"
 )
 
 func main() {
@@ -80,4 +80,3 @@ func main() {
 	}
 	logger.Info("Server stopped")
 }
-

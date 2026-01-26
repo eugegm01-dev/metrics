@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
-	models "github.com/eugegm01-dev/metrics/pkg/model"
+	models "github.com/eugegm01-dev/metrics/internal/model"
 )
 
 type PGStorage struct {

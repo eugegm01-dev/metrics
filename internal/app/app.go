@@ -7,8 +7,8 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/eugegm01-dev/metrics/pkg/config"
-	"github.com/eugegm01-dev/metrics/pkg/repository"
+	"github.com/eugegm01-dev/metrics/internal/config"
+	"github.com/eugegm01-dev/metrics/internal/repository"
 	"go.uber.org/zap"
 )
 
