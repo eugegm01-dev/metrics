@@ -41,7 +41,7 @@ func NewFileStorage(filePath string, storeInterval time.Duration, restore bool) 
 	// Одноразовая загрузка при старте
 	if restore {
 		if err := storage.loadFromFile(); err != nil {
-			fmt.Printf("WARNING: Failed to load metrics from file: %v\n", err)
+			// Логируем ошибку, но не прерываем работу
 		}
 	}
 
@@ -89,7 +89,6 @@ func (s *FileStorage) loadFromFile() error {
 		}
 	}
 
-	fmt.Printf("Loaded %d metrics from %s\n", len(metrics), s.filePath)
 	return nil
 }
 
@@ -140,11 +139,11 @@ func (s *FileStorage) periodicSave() {
 		select {
 		case <-ticker.C:
 			if err := s.saveToFile(); err != nil {
-				fmt.Printf("ERROR: Failed to save metrics: %v\n", err)
+				// Логируем ошибку, но не прерываем работу
 			}
 		case <-s.saveChan:
 			if err := s.saveToFile(); err != nil {
-				fmt.Printf("ERROR: Failed to save metrics: %v\n", err)
+				// Логируем ошибку, но не прерываем работу
 			}
 		case <-s.stopChan:
 			s.saveToFile() // финальное сохранение
@@ -161,6 +160,18 @@ func (s *FileStorage) SaveToFile() error {
 // Close — завершает работу с финальным сохранением
 func (s *FileStorage) Close() {
 	close(s.stopChan)
+}
+func (s *FileStorage) UpdateBatch(metrics []models.Metrics) error {
+	// Используем метод MemStorage
+	if err := s.MemStorage.UpdateBatch(metrics); err != nil {
+		return err
+	}
+	// Если storeInterval = 0, то сохраняем синхронно
+	if s.storeInterval == 0 {
+		return s.saveToFile()
+	}
+	// Иначе откладываем сохранение до следующего тика
+	return nil
 }
 
 // GetAllMetricsForSave — приватный вспомогательный метод

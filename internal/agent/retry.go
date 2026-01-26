@@ -68,19 +68,19 @@ func Retry(ctx context.Context, operation func() error, maxRetries int, delays .
 			break
 		}
 
-		// Создаем таймер для задержки с поддержкой контекста
+		// Используем Timer с поддержкой контекста
 		delay := delays[attempt]
 		timer := time.NewTimer(delay)
 
 		select {
 		case <-ctx.Done():
-			timer.Stop()
+			if !timer.Stop() {
+				<-timer.C
+			}
 			return fmt.Errorf("operation cancelled while waiting for retry: %w", ctx.Err())
 		case <-timer.C:
 			// Продолжаем со следующей попыткой
 		}
-
-		timer.Stop()
 	}
 
 	return fmt.Errorf("operation failed after %d attempts: %w", maxRetries, lastErr)

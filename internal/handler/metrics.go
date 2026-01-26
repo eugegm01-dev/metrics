@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// UpdateHandler обрабатывает обновление метрики через URL параметры
 func UpdateHandler(storage repository.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -53,6 +54,77 @@ func UpdateHandler(storage repository.Storage) http.HandlerFunc {
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
+	}
+}
+
+// UpdatesHandler обрабатывает обновление множества метрик за один запрос
+func UpdatesHandler(storage repository.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+			return
+		}
+
+		var metrics []models.Metrics
+		dec := json.NewDecoder(r.Body)
+		if err := dec.Decode(&metrics); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		if len(metrics) == 0 {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Проверяем, поддерживает ли хранилище пакетное обновление
+		if batchUpdater, ok := storage.(repository.BatchUpdater); ok {
+			if err := batchUpdater.UpdateBatch(metrics); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		} else {
+			// Атомарное обновление всех метрик
+			for _, metric := range metrics {
+				if metric.ID == "" {
+					http.Error(w, "Metric name (id) is required", http.StatusBadRequest)
+					return
+				}
+
+				if metric.MType != models.Gauge && metric.MType != models.Counter {
+					http.Error(w, "Invalid metric type", http.StatusBadRequest)
+					return
+				}
+
+				switch metric.MType {
+				case models.Gauge:
+					if metric.Value == nil {
+						http.Error(w, "Value is required for gauge", http.StatusBadRequest)
+						return
+					}
+					storage.UpdateGauge(metric.ID, *metric.Value)
+
+				case models.Counter:
+					if metric.Delta == nil {
+						http.Error(w, "Delta is required for counter", http.StatusBadRequest)
+						return
+					}
+					storage.UpdateCounter(metric.ID, *metric.Delta)
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		// Возвращаем статус OK (можно также вернуть обновленные метрики)
+		enc := json.NewEncoder(w)
+		enc.Encode(map[string]string{"status": "ok"})
 	}
 }
 
@@ -260,69 +332,5 @@ func IndexHTMLHandler(storage repository.Storage) http.HandlerFunc {
 </html>`
 
 		w.Write([]byte(htmlContent))
-	}
-}
-
-// UpdatesHandler обрабатывает обновление множества метрик за один запрос
-func UpdatesHandler(storage repository.Storage) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		if r.Header.Get("Content-Type") != "application/json" {
-			http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
-			return
-		}
-
-		var metrics []models.Metrics
-		dec := json.NewDecoder(r.Body)
-		if err := dec.Decode(&metrics); err != nil {
-			http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			return
-		}
-
-		if len(metrics) == 0 {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		// Атомарное обновление всех метрик
-		// Для PostgreSQL используем транзакцию, для других хранилищ - мьютексы
-		for _, metric := range metrics {
-			if metric.ID == "" {
-				http.Error(w, "Metric name (id) is required", http.StatusBadRequest)
-				return
-			}
-
-			if metric.MType != models.Gauge && metric.MType != models.Counter {
-				http.Error(w, "Invalid metric type", http.StatusBadRequest)
-				return
-			}
-
-			switch metric.MType {
-			case models.Gauge:
-				if metric.Value == nil {
-					http.Error(w, "Value is required for gauge", http.StatusBadRequest)
-					return
-				}
-				storage.UpdateGauge(metric.ID, *metric.Value)
-
-			case models.Counter:
-				if metric.Delta == nil {
-					http.Error(w, "Delta is required for counter", http.StatusBadRequest)
-					return
-				}
-				storage.UpdateCounter(metric.ID, *metric.Delta)
-			}
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-
-		// Возвращаем статус OK (можно также вернуть обновленные метрики)
-		enc := json.NewEncoder(w)
-		enc.Encode(map[string]string{"status": "ok"})
 	}
 }

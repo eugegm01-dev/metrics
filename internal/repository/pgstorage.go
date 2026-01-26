@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
@@ -23,7 +22,6 @@ func NewPGStorage(db *sql.DB) (*PGStorage, error) {
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
-	log.Println("PostgreSQL migrations applied successfully")
 	return &PGStorage{db: db}, nil
 }
 
@@ -109,11 +107,11 @@ func (s *PGStorage) UpdateGauge(name string, value float64) {
 	ctx := context.Background()
 	s.executeWithRetry(ctx, func() error {
 		_, err := s.db.ExecContext(ctx, `
-            INSERT INTO gauges (name, value)
-            VALUES ($1, $2)
-            ON CONFLICT (name)
-            DO UPDATE SET value = $2
-        `, name, value)
+			INSERT INTO gauges (name, value)
+			VALUES ($1, $2)
+			ON CONFLICT (name)
+			DO UPDATE SET value = $2
+		`, name, value)
 		return err
 	})
 }
@@ -122,25 +120,27 @@ func (s *PGStorage) UpdateCounter(name string, value int64) {
 	ctx := context.Background()
 	s.executeWithRetry(ctx, func() error {
 		_, err := s.db.ExecContext(ctx, `
-            INSERT INTO counters (name, value)
-            VALUES ($1, $2)
-            ON CONFLICT (name)
-            DO UPDATE SET value = counters.value + $2
-        `, name, value)
+			INSERT INTO counters (name, value)
+			VALUES ($1, $2)
+			ON CONFLICT (name)
+			DO UPDATE SET value = counters.value + $2
+		`, name, value)
 		return err
 	})
 }
 
 func (s *PGStorage) GetGauge(name string) (float64, bool) {
 	var value float64
-	err := s.db.QueryRowContext(context.Background(),
-		"SELECT value FROM gauges WHERE name = $1", name).Scan(&value)
+	ctx := context.Background()
+	err := s.executeWithRetry(ctx, func() error {
+		return s.db.QueryRowContext(ctx,
+			"SELECT value FROM gauges WHERE name = $1", name).Scan(&value)
+	})
 
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, false
 		}
-		log.Printf("Failed to get gauge: %v", err)
 		return 0, false
 	}
 	return value, true
@@ -148,14 +148,16 @@ func (s *PGStorage) GetGauge(name string) (float64, bool) {
 
 func (s *PGStorage) GetCounter(name string) (int64, bool) {
 	var value int64
-	err := s.db.QueryRowContext(context.Background(),
-		"SELECT value FROM counters WHERE name = $1", name).Scan(&value)
+	ctx := context.Background()
+	err := s.executeWithRetry(ctx, func() error {
+		return s.db.QueryRowContext(ctx,
+			"SELECT value FROM counters WHERE name = $1", name).Scan(&value)
+	})
 
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, false
 		}
-		log.Printf("Failed to get counter: %v", err)
 		return 0, false
 	}
 	return value, true
@@ -164,11 +166,15 @@ func (s *PGStorage) GetCounter(name string) (int64, bool) {
 func (s *PGStorage) GetAllMetrics() string {
 	var result string
 
-	rows, err := s.db.Query("SELECT name, value FROM gauges")
-	if err != nil {
-		result += fmt.Sprintf("Error retrieving gauges: %v\n", err)
-	} else {
+	ctx := context.Background()
+	err := s.executeWithRetry(ctx, func() error {
+		rows, err := s.db.QueryContext(ctx, "SELECT name, value FROM gauges")
+		if err != nil {
+			result += fmt.Sprintf("Error retrieving gauges: %v\n", err)
+			return nil
+		}
 		defer rows.Close()
+
 		result += "Gauges:\n"
 		for rows.Next() {
 			var name string
@@ -178,13 +184,17 @@ func (s *PGStorage) GetAllMetrics() string {
 			}
 			result += fmt.Sprintf(" %s: %f\n", name, value)
 		}
-	}
+		if err := rows.Err(); err != nil {
+			result += fmt.Sprintf("Error iterating gauges: %v\n", err)
+		}
 
-	rows, err = s.db.Query("SELECT name, value FROM counters")
-	if err != nil {
-		result += fmt.Sprintf("Error retrieving counters: %v\n", err)
-	} else {
+		rows, err = s.db.QueryContext(ctx, "SELECT name, value FROM counters")
+		if err != nil {
+			result += fmt.Sprintf("Error retrieving counters: %v\n", err)
+			return nil
+		}
 		defer rows.Close()
+
 		result += "Counters:\n"
 		for rows.Next() {
 			var name string
@@ -194,6 +204,15 @@ func (s *PGStorage) GetAllMetrics() string {
 			}
 			result += fmt.Sprintf(" %s: %d\n", name, value)
 		}
+		if err := rows.Err(); err != nil {
+			result += fmt.Sprintf("Error iterating counters: %v\n", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		result += fmt.Sprintf("Error executing query: %v\n", err)
 	}
 
 	return result

@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
@@ -73,7 +75,7 @@ func RunServer() error {
 }
 
 func initDB(cfg *config.ServerConfig, logger *zap.Logger) (*sql.DB, error) {
-	db, err := sql.Open("postgres", cfg.DatabaseDSN)
+	db, err := sql.Open("pgx", cfg.DatabaseDSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -104,6 +106,12 @@ func initDB(cfg *config.ServerConfig, logger *zap.Logger) (*sql.DB, error) {
 }
 
 func initStorage(cfg *config.ServerConfig, db *sql.DB, logger *zap.Logger) (repository.Storage, error) {
+	logger.Debug("Initializing storage",
+		zap.String("file_path", cfg.FileStoragePath),
+		zap.Duration("store_interval", cfg.StoreInterval),
+		zap.Bool("restore", cfg.Restore),
+		zap.Bool("has_db", db != nil))
+
 	return repository.NewStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore, db)
 }
 

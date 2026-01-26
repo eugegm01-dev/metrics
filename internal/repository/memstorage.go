@@ -3,6 +3,8 @@ package repository
 import (
 	"fmt"
 	"sync"
+
+	models "github.com/eugegm01-dev/metrics/internal/model"
 )
 
 type MemStorage struct {
@@ -57,6 +59,29 @@ func (s *MemStorage) GetAllMetrics() string {
 		result += fmt.Sprintf(" %s: %d\n", k, v)
 	}
 	return result
+}
+
+func (s *MemStorage) UpdateBatch(metrics []models.Metrics) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				return fmt.Errorf("value is required for gauge")
+			}
+			s.Gauges[metric.ID] = *metric.Value
+		case models.Counter:
+			if metric.Delta == nil {
+				return fmt.Errorf("delta is required for counter")
+			}
+			s.Counters[metric.ID] += *metric.Delta
+		default:
+			return fmt.Errorf("unknown metric type: %s", metric.MType)
+		}
+	}
+	return nil
 }
 
 // Пустые реализации интерфейса (FileStorage будет их переопределять)
