@@ -1,6 +1,6 @@
 package repository
 
-import "github.com/eugegm01-dev/metrics/internal/model"
+import "github.com/eugegm01-dev/metrics/pkg/model"
 
 // Storage описывает общие операции хранилища
 type Storage interface {

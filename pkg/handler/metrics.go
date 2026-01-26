@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strconv"
 
-	models "github.com/eugegm01-dev/metrics/internal/model"
-	"github.com/eugegm01-dev/metrics/internal/repository"
+	models "github.com/eugegm01-dev/metrics/pkg/model"
+	"github.com/eugegm01-dev/metrics/pkg/repository"
 	"github.com/go-chi/chi/v5"
 )
 
