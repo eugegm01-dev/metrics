@@ -11,9 +11,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/eugegm01-dev/metrics/internal/agent"
-	"github.com/eugegm01-dev/metrics/internal/config"
-	models "github.com/eugegm01-dev/metrics/internal/model"
+	"github.com/eugegm01-dev/metrics/pkg/agent"
+	"github.com/eugegm01-dev/metrics/pkg/config"
+	models "github.com/eugegm01-dev/metrics/pkg/model"
 )
 
 func main() {
