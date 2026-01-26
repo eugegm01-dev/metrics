@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	models "github.com/eugegm01-dev/metrics/pkg/model"
+	models "github.com/eugegm01-dev/metrics/internal/model"
 	"go.uber.org/zap"
 )
 

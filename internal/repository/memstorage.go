@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	models "github.com/eugegm01-dev/metrics/pkg/model"
+	models "github.com/eugegm01-dev/metrics/internal/model"
 )
 
 type MemStorage struct {

@@ -13,7 +13,7 @@ import (
 
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
 
-	models "github.com/eugegm01-dev/metrics/pkg/model"
+	models "github.com/eugegm01-dev/metrics/internal/model"
 )
 
 func gzipData(data []byte) ([]byte, error) {

@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"sync/atomic"
 
-	"github.com/eugegm01-dev/metrics/pkg/model"
+	"github.com/eugegm01-dev/metrics/internal/model"
 )
 
 // Agent — основная структура агента, содержит состояние
