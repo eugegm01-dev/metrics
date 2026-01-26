@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 // RetryableErrorClassifier классифицирует ошибки как retryable/non-retryable
@@ -48,7 +46,6 @@ func Retry(ctx context.Context, operation func() error, maxRetries int, delays .
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Проверяем отмену перед попыткой
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -56,26 +53,7 @@ func Retry(ctx context.Context, operation func() error, maxRetries int, delays .
 		}
 
 		if attempt > 0 {
-			// безопасное ожидание с учётом ctx
-			var delay time.Duration
-			if attempt-1 < len(delays) {
-				delay = delays[attempt-1]
-			} else if len(delays) > 0 {
-				delay = delays[len(delays)-1] // используем последний delay как fallback
-			} else {
-				delay = time.Second
-			}
-
-			timer := time.NewTimer(delay)
-			select {
-			case <-ctx.Done():
-				if !timer.Stop() {
-					<-timer.C
-				}
-				return ctx.Err()
-			case <-timer.C:
-				// продолжить к выполнению операции
-			}
+			time.Sleep(delays[attempt-1])
 		}
 
 		err := operation()
@@ -85,23 +63,16 @@ func Retry(ctx context.Context, operation func() error, maxRetries int, delays .
 
 		lastErr = err
 
+		// Проверяем, нужно ли повторять
 		classifier := NewRetryableErrorClassifier()
 		if !classifier.IsRetryableError(err) {
 			return fmt.Errorf("non-retryable error: %w", err)
 		}
 
+		// Для HTTP ошибок проверяем статус код
 		if attempt < maxRetries {
-			zap.L().Sugar().Debugf("Retryable error occurred (attempt %d/%d): %v. Retrying in %v",
-				attempt+1, maxRetries, err, func() time.Duration {
-					if attempt < len(delays) {
-						return delays[attempt]
-					}
-					if len(delays) > 0 {
-						return delays[len(delays)-1]
-					}
-					return time.Second
-				}(),
-			)
+			fmt.Printf("Retryable error occurred (attempt %d/%d): %v. Retrying in %v...\n",
+				attempt+1, maxRetries, err, delays[attempt])
 		}
 	}
 

@@ -1,12 +1,7 @@
 package main
 
 import (
-	"context"
 	"log"
-	"os"
-	"os/signal"
-	"sync"
-	"syscall"
 	"time"
 
 	"go.uber.org/zap"
@@ -17,14 +12,11 @@ import (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
+	// Инициализируем zap-логгер (как в сервере)
 	logger, err := zap.NewDevelopment()
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
-	zap.ReplaceGlobals(logger)
 	defer logger.Sync()
 
 	cfg, err := config.ParseAgentConfig()
@@ -32,12 +24,14 @@ func main() {
 		logger.Fatal("Failed to parse config", zap.Error(err))
 	}
 
+	// Выводим конфигурацию через логгер
 	logger.Info("Agent started with configuration",
 		zap.String("server_address", cfg.ServerAddr),
 		zap.Duration("poll_interval", cfg.PollInterval),
 		zap.Duration("report_interval", cfg.ReportInterval),
 	)
 
+	// Создаём один экземпляр агента — здесь живёт pollCount
 	agentInstance := agent.NewAgent()
 
 	pollTicker := time.NewTicker(cfg.PollInterval)
@@ -45,57 +39,30 @@ func main() {
 	defer pollTicker.Stop()
 	defer reportTicker.Stop()
 
-	var (
-		currentMetrics []models.Metrics
-		mu             sync.RWMutex
-	)
+	var currentMetrics []models.Metrics
 
 	for {
 		select {
-		case <-ctx.Done():
-			logger.Info("Shutdown signal received, performing final send if needed")
-			// финальная отправка: копируем метрики под локом и отправляем без блокировки
-			mu.RLock()
-			finalCopy := make([]models.Metrics, len(currentMetrics))
-			copy(finalCopy, currentMetrics)
-			mu.RUnlock()
-
-			if len(finalCopy) > 0 {
-				prepared := agentInstance.PrepareMetricsForSend(finalCopy)
-				if err := agent.SendMetricsBatch(context.Background(), cfg.ServerAddr, prepared); err != nil {
-					logger.Error("Failed to send final metrics", zap.Error(err))
-				} else {
-					logger.Info("Final metrics sent", zap.Int("metrics_count", len(prepared)))
-				}
-			}
-			return
-
 		case <-pollTicker.C:
 			logger.Debug("Poll tick → collecting metrics")
-			collected := agentInstance.CollectMetrics()
-			mu.Lock()
-			currentMetrics = collected
-			mu.Unlock()
+			currentMetrics = agentInstance.CollectMetrics() // собираем через экземпляр
 
 		case <-reportTicker.C:
 			logger.Debug("Report tick → sending metrics")
-			// копируем под RLock, чтобы не держать лок во время сетевых операций
-			mu.RLock()
-			if len(currentMetrics) == 0 {
-				mu.RUnlock()
-				continue
-			}
-			toSend := make([]models.Metrics, len(currentMetrics))
-			copy(toSend, currentMetrics)
-			mu.RUnlock()
-
-			preparedMetrics := agentInstance.PrepareMetricsForSend(toSend)
-			if err := agent.SendMetricsBatch(ctx, cfg.ServerAddr, preparedMetrics); err != nil {
-				logger.Error("Failed to send metrics to server after retries", zap.Error(err))
-			} else {
-				logger.Info("Metrics successfully sent as batch",
-					zap.Int("metrics_count", len(preparedMetrics)),
-				)
+			if len(currentMetrics) > 0 {
+				preparedMetrics := agentInstance.PrepareMetricsForSend(currentMetrics) // корректируем Delta
+				// Используем новую функцию для батчевой отправки с retry
+				if err := agent.SendMetricsBatch(cfg.ServerAddr, preparedMetrics); err != nil {
+					logger.Error("Failed to send metrics to server after retries",
+						zap.Error(err),
+						zap.Int("metrics_count", len(preparedMetrics)),
+					)
+				} else {
+					logger.Info("Metrics successfully sent as batch",
+						zap.Int("metrics_count", len(preparedMetrics)),
+					)
+				}
+				// PollCount накапливается, метрики не сбрасываем
 			}
 		}
 	}

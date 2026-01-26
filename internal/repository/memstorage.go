@@ -3,8 +3,6 @@ package repository
 import (
 	"fmt"
 	"sync"
-
-	models "github.com/eugegm01-dev/metrics/internal/model"
 )
 
 type MemStorage struct {
@@ -30,28 +28,6 @@ func (s *MemStorage) UpdateCounter(name string, value int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Counters[name] += value
-}
-
-// UpdateBatch применяет батч метрик к in-memory хранилищу.
-func (m *MemStorage) UpdateBatch(metrics []models.Metrics) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for _, metric := range metrics {
-		switch metric.MType {
-		case models.Gauge:
-			if metric.Value != nil {
-				m.Gauges[metric.ID] = *metric.Value
-			}
-		case models.Counter:
-			if metric.Delta != nil {
-				m.Counters[metric.ID] += *metric.Delta
-			}
-		default:
-			// игнорируем неизвестные типы
-		}
-	}
-	return nil
 }
 
 func (s *MemStorage) GetGauge(name string) (float64, bool) {

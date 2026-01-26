@@ -15,7 +15,6 @@ type ServerConfig struct {
 	FileStoragePath string
 	Restore         bool
 	DatabaseDSN     string
-	MigrationsDir   string
 }
 
 func ParseServerConfig() (*ServerConfig, error) {
@@ -24,8 +23,6 @@ func ParseServerConfig() (*ServerConfig, error) {
 	var flagFileStoragePath string
 	var flagRestore bool
 	var flagDSN string
-	var flagMigrationsDir string
-	flag.StringVar(&flagMigrationsDir, "m", "./migrations", "path to migrations directory")
 	flag.StringVar(&flagDSN, "d", "", "PostgreSQL DSN")
 
 	flag.StringVar(&flagRunAddr, "a", "localhost:8080", "адрес и порт для запуска сервера")
@@ -41,7 +38,6 @@ func ParseServerConfig() (*ServerConfig, error) {
 		FileStoragePath: flagFileStoragePath,
 		Restore:         flagRestore,
 		DatabaseDSN:     flagDSN,
-		MigrationsDir:   flagMigrationsDir,
 	}
 
 	// Приоритет: переменные окружения > флаги > дефолт
@@ -86,9 +82,6 @@ func ParseServerConfig() (*ServerConfig, error) {
 		} else {
 			cfg.Restore = val
 		}
-	}
-	if envMigrations := os.Getenv("MIGRATIONS_DIR"); envMigrations != "" {
-		cfg.MigrationsDir = envMigrations
 	}
 
 	return cfg, nil
