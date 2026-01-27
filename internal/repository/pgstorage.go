@@ -18,7 +18,11 @@ type PGStorage struct {
 }
 
 func NewPGStorage(db *sql.DB) (*PGStorage, error) {
-	// Применяем миграции
+	if db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+
+	// Goose теперь работает с директорией миграций
 	if err := goose.Up(db, "migrations"); err != nil {
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}

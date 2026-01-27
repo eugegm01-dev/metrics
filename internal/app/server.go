@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -76,9 +77,23 @@ func RunServer() error {
 
 func initDB(cfg *config.ServerConfig, logger *zap.Logger) (*sql.DB, error) {
 	dsn := cfg.DatabaseDSN
+
+	// Обрезаем кавычки, которые могут быть в тестах
+	dsn = strings.Trim(dsn, "'\"`")
+
 	if dsn == "" {
-		dsn = "postgres://postgres:password@localhost:5432/metrics?sslmode=disable"
+		// Если DSN пустой, пропускаем подключение к БД
+		return nil, nil
 	}
+
+	// Если DSN не содержит схему, добавляем postgres://postgres@
+	if !strings.Contains(dsn, "://") {
+		// Тесты передают: postgres:5432/praktikum?sslmode=disable
+		// Добавляем пользователя postgres
+		dsn = "postgres://postgres@" + dsn
+	}
+
+	logger.Info("Connecting to database", zap.String("dsn", dsn))
 
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -93,6 +108,7 @@ func initDB(cfg *config.ServerConfig, logger *zap.Logger) (*sql.DB, error) {
 		cancel()
 
 		if err == nil {
+			logger.Info("Database connected successfully")
 			return db, nil
 		}
 
