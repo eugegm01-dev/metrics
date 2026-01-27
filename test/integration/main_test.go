@@ -1,6 +1,7 @@
+// test/integration/main_test.go
 //go:build integration
 
-package main
+package integration
 
 import (
 	"fmt"
@@ -8,12 +9,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"testing"
 	"time"
 )
 
-func main() {
+func TestIntegration(t *testing.T) {
 	// Запуск сервера с PostgreSQL
-	cmdServer := exec.Command("go", "run", "./cmd/server/main.go",
+	cmdServer := exec.Command("go", "run", "../../cmd/server/main.go",
 		"-a=localhost:9090",
 		"-d=postgres://postgres:password@localhost:5432/metrics?sslmode=disable")
 	cmdServer.Stdout = os.Stdout
@@ -26,7 +28,7 @@ func main() {
 	time.Sleep(3 * time.Second)
 
 	// Запуск агента
-	cmdAgent := exec.Command("go", "run", "./cmd/agent/main.go",
+	cmdAgent := exec.Command("go", "run", "../../cmd/agent/main.go",
 		"-a=localhost:9090",
 		"-r=2",
 		"-p=1")
@@ -42,8 +44,13 @@ func main() {
 	time.Sleep(5 * time.Second)
 	resp, err := http.Get("http://localhost:9090/")
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+
 	fmt.Println("Integration test passed!")
 }
