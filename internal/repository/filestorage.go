@@ -41,10 +41,9 @@ func NewFileStorage(filePath string, storeInterval time.Duration, restore bool) 
 	// Одноразовая загрузка при старте
 	if restore {
 		if err := storage.loadFromFile(); err != nil {
-			// Логируем ошибку, но не прерываем работу
+			_ = err // игнорируем ошибку при загрузке
 		}
 	}
-
 	// Периодическое сохранение
 	if storeInterval > 0 {
 		go storage.periodicSave()
@@ -140,10 +139,12 @@ func (s *FileStorage) periodicSave() {
 		case <-ticker.C:
 			if err := s.saveToFile(); err != nil {
 				// Логируем ошибку, но не прерываем работу
+				_ = err // игнорируем ошибку при сохранении
 			}
 		case <-s.saveChan:
 			if err := s.saveToFile(); err != nil {
 				// Логируем ошибку, но не прерываем работу
+				_ = err // игнорируем ошибку при сохранении
 			}
 		case <-s.stopChan:
 			s.saveToFile() // финальное сохранение

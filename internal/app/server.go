@@ -75,7 +75,12 @@ func RunServer() error {
 }
 
 func initDB(cfg *config.ServerConfig, logger *zap.Logger) (*sql.DB, error) {
-	db, err := sql.Open("pgx", cfg.DatabaseDSN)
+	dsn := cfg.DatabaseDSN
+	if dsn == "" {
+		dsn = "postgres://postgres:password@localhost:5432/metrics?sslmode=disable"
+	}
+
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
