@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"time"
 
 	"go.uber.org/zap"
@@ -12,13 +13,13 @@ import (
 func RunAgent() error {
 	logger, err := zap.NewDevelopment()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create logger: %w", err)
 	}
 	defer logger.Sync()
 
 	cfg, err := config.ParseAgentConfig()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
 	logger.Info("Agent started with configuration",

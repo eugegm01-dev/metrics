@@ -48,7 +48,7 @@ func RunServer() error {
 	if cfg.DatabaseDSN != "" {
 		db, err = initDB(cfg, logger)
 		if err != nil {
-			return err // fail early
+			return fmt.Errorf("failed to initialize database: %w", err)
 		}
 		defer db.Close()
 	}
