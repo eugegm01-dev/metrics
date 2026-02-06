@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"math/rand"
 	"runtime"
 	"strconv"
 	"sync"
@@ -73,6 +74,8 @@ func collectRuntimeMetrics() []Metric {
 		{ID: "StackSys", MType: model.Gauge, Value: float64(stats.StackSys)},
 		{ID: "Sys", MType: model.Gauge, Value: float64(stats.Sys)},
 		{ID: "TotalAlloc", MType: model.Gauge, Value: float64(stats.TotalAlloc)},
+		// Добавляем RandomValue
+		{ID: "RandomValue", MType: model.Gauge, Value: rand.Float64()},
 	}
 
 	return metrics
