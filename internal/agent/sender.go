@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -39,8 +42,19 @@ func gzipData(data []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// computeHash вычисляет HMAC-SHA256 хеш от данных с ключом
+func computeHash(data []byte, key string) string {
+	if key == "" {
+		return ""
+	}
+
+	h := hmac.New(sha256.New, []byte(key))
+	h.Write(data)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 // SendMetricsBatch отправляет метрики батчами с использованием go-retryablehttp
-func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
+func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) error {
 	if len(metrics) == 0 {
 		return nil
 	}
@@ -49,6 +63,9 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal metrics: %w", err)
 	}
+
+	// Вычисляем хеш от JSON данных до сжатия
+	hash := computeHash(jsonData, key)
 
 	gzData, err := gzipData(jsonData)
 	if err != nil {
@@ -70,6 +87,11 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
 
+	// Добавляем хеш в заголовок, если он вычислен
+	if hash != "" {
+		req.Header.Set("HashSHA256", hash)
+	}
+
 	// Используем контекст с таймаутом
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -89,12 +111,15 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics) error {
 }
 
 // SendMetrics отправляет одиночные метрики (для обратной совместимости)
-func SendMetrics(serverAddr string, metrics []models.Metrics) error {
+func SendMetrics(serverAddr string, metrics []models.Metrics, key string) error {
 	for _, metric := range metrics {
 		jsonData, err := json.Marshal(metric)
 		if err != nil {
 			return fmt.Errorf("failed to marshal metric: %w", err)
 		}
+
+		// Вычисляем хеш от JSON данных до сжатия
+		hash := computeHash(jsonData, key)
 
 		gzData, err := gzipData(jsonData)
 		if err != nil {
@@ -114,6 +139,11 @@ func SendMetrics(serverAddr string, metrics []models.Metrics) error {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Accept-Encoding", "gzip")
+
+		// Добавляем хеш в заголовок, если он вычислен
+		if hash != "" {
+			req.Header.Set("HashSHA256", hash)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()

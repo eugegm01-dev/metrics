@@ -15,6 +15,7 @@ type ServerConfig struct {
 	FileStoragePath string
 	Restore         bool
 	DatabaseDSN     string
+	Key             string // Добавляем поле для ключа
 }
 
 func ParseServerConfig() (*ServerConfig, error) {
@@ -23,7 +24,10 @@ func ParseServerConfig() (*ServerConfig, error) {
 	var flagFileStoragePath string
 	var flagRestore bool
 	var flagDSN string
+	var flagKey string // Добавляем флаг для ключа
+
 	flag.StringVar(&flagDSN, "d", "", "PostgreSQL DSN")
+	flag.StringVar(&flagKey, "k", "", "ключ для проверки подписи") // Добавляем флаг
 
 	flag.StringVar(&flagRunAddr, "a", "localhost:8080", "адрес и порт для запуска сервера")
 	flag.IntVar(&flagStoreInterval, "i", 300, "интервал сохранения метрик на диск в секундах (0 - синхронная запись)")
@@ -38,6 +42,7 @@ func ParseServerConfig() (*ServerConfig, error) {
 		FileStoragePath: flagFileStoragePath,
 		Restore:         flagRestore,
 		DatabaseDSN:     flagDSN,
+		Key:             flagKey,
 	}
 
 	// Приоритет: переменные окружения > флаги > дефолт
@@ -45,13 +50,17 @@ func ParseServerConfig() (*ServerConfig, error) {
 	// ADDRESS
 	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
 		cfg.Addr = envAddr
-
 	}
 	if envDSN := os.Getenv("DATABASE_DSN"); envDSN != "" {
 		cfg.DatabaseDSN = envDSN
 	}
 
-	// STORE_INTERVAL — Fail early: если переменная есть — парсим строго
+	// KEY
+	if envKey, ok := os.LookupEnv("KEY"); ok {
+		cfg.Key = envKey
+	}
+
+	// STORE_INTERVAL
 	if envStoreInterval, ok := os.LookupEnv("STORE_INTERVAL"); ok {
 		val, err := strconv.Atoi(envStoreInterval)
 		if err != nil {
@@ -65,11 +74,10 @@ func ParseServerConfig() (*ServerConfig, error) {
 		cfg.FileStoragePath = envFilePath
 	}
 
-	// RESTORE — Fail early: если переменная есть — парсим строго
+	// RESTORE
 	if envRestore, ok := os.LookupEnv("RESTORE"); ok {
 		val, err := strconv.ParseBool(envRestore)
 		if err != nil {
-			// Допускаем "true", "1", "yes", "false", "0", "no" (как раньше)
 			lower := strings.ToLower(envRestore)
 			switch lower {
 			case "true", "1", "yes":

@@ -41,6 +41,7 @@ func RunServer() error {
 		zap.String("file_storage_path", cfg.FileStoragePath),
 		zap.Bool("restore", cfg.Restore),
 		zap.String("database_dsn", cfg.DatabaseDSN),
+		zap.String("key", cfg.Key), // Логируем наличие ключа
 	)
 
 	// Инициализация БД
@@ -60,8 +61,8 @@ func RunServer() error {
 	}
 	defer storage.Close()
 
-	// Инициализация роутера
-	r := initRouter(storage, logger)
+	// Инициализация роутера с передачей ключа
+	r := initRouter(storage, logger, cfg.Key)
 
 	// Настройка сервера
 	srv := &http.Server{
@@ -136,27 +137,28 @@ func initStorage(cfg *config.ServerConfig, db *sql.DB, logger *zap.Logger) (repo
 	return repository.NewStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore, db)
 }
 
-func initRouter(storage repository.Storage, logger *zap.Logger) *chi.Mux {
+func initRouter(storage repository.Storage, logger *zap.Logger, key string) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(middleware.GzipMiddleware)
 	r.Use(middleware.LoggingMiddleware(logger))
+	r.Use(middleware.HashMiddleware(key)) // Добавляем middleware для проверки хеша
 
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("pong"))
 	})
 
-	r.Get("/", handler.IndexHTMLHandler(storage))
-	r.Post("/update/{type}/{name}/{value}", handler.UpdateHandler(storage))
-	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage))
-	r.Post("/update", handler.UpdateJSONHandler(storage))
-	r.Post("/update/", handler.UpdateJSONHandler(storage))
-	r.Post("/value", handler.ValueJSONHandler(storage))
-	r.Post("/value/", handler.ValueJSONHandler(storage))
-	r.Post("/updates", handler.UpdatesHandler(storage))
-	r.Post("/updates/", handler.UpdatesHandler(storage))
+	r.Get("/", handler.IndexHTMLHandler(storage, key))                           // Передаем ключ
+	r.Post("/update/{type}/{name}/{value}", handler.UpdateHandler(storage, key)) // Передаем ключ
+	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage, key))        // Передаем ключ
+	r.Post("/update", handler.UpdateJSONHandler(storage, key))
+	r.Post("/update/", handler.UpdateJSONHandler(storage, key))
+	r.Post("/value", handler.ValueJSONHandler(storage, key))
+	r.Post("/value/", handler.ValueJSONHandler(storage, key))
+	r.Post("/updates", handler.UpdatesHandler(storage, key))
+	r.Post("/updates/", handler.UpdatesHandler(storage, key))
 
 	// Endpoint для сохранения в файл (только для FileStorage)
 	r.Post("/save", func(w http.ResponseWriter, r *http.Request) {

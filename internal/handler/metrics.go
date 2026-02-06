@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -13,7 +17,7 @@ import (
 )
 
 // UpdateHandler обрабатывает обновление метрики через URL параметры
-func UpdateHandler(storage repository.Storage) http.HandlerFunc {
+func UpdateHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -58,7 +62,7 @@ func UpdateHandler(storage repository.Storage) http.HandlerFunc {
 }
 
 // UpdatesHandler обрабатывает обновление множества метрик за один запрос
-func UpdatesHandler(storage repository.Storage) http.HandlerFunc {
+func UpdatesHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -129,7 +133,7 @@ func UpdatesHandler(storage repository.Storage) http.HandlerFunc {
 }
 
 // UpdateJSONHandler обрабатывает обновление метрики через JSON
-func UpdateJSONHandler(storage repository.Storage) http.HandlerFunc {
+func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Проверка метода удалена — chi/Post уже гарантирует POST
 
@@ -192,12 +196,37 @@ func UpdateJSONHandler(storage repository.Storage) http.HandlerFunc {
 			response.Delta = &val
 		}
 
-		enc := json.NewEncoder(w)
-		enc.Encode(response)
+		// Кодируем ответ
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		if err := enc.Encode(response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
+
+		// Вычисляем хеш, если ключ задан
+		if key != "" {
+			hash := computeHash(buf.Bytes(), key)
+			w.Header().Set("HashSHA256", hash)
+		}
+
+		// Пишем ответ
+		w.Write(buf.Bytes())
 	}
 }
 
-func GetMetricHandler(storage repository.Storage) http.HandlerFunc {
+// computeHash вычисляет HMAC-SHA256 хеш
+func computeHash(data []byte, key string) string {
+	if key == "" {
+		return ""
+	}
+
+	h := hmac.New(sha256.New, []byte(key))
+	h.Write(data)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func GetMetricHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -236,7 +265,7 @@ func GetMetricHandler(storage repository.Storage) http.HandlerFunc {
 }
 
 // ValueJSONHandler возвращает значение метрики в формате JSON
-func ValueJSONHandler(storage repository.Storage) http.HandlerFunc {
+func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Проверка метода удалена — chi/Post уже гарантирует POST
 
@@ -287,10 +316,29 @@ func ValueJSONHandler(storage repository.Storage) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		enc := json.NewEncoder(w)
 		enc.Encode(response)
+		// Кодируем ответ
+
+		var buf bytes.Buffer
+
+		enc = json.NewEncoder(&buf)
+		if err := enc.Encode(response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
+
+		// Вычисляем хеш, если ключ задан
+		if key != "" {
+			hash := computeHash(buf.Bytes(), key)
+			w.Header().Set("HashSHA256", hash)
+		}
+
+		// Пишем ответ
+		w.Write(buf.Bytes())
+
 	}
 }
 
-func IndexHTMLHandler(storage repository.Storage) http.HandlerFunc {
+func IndexHTMLHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -330,6 +378,13 @@ func IndexHTMLHandler(storage repository.Storage) http.HandlerFunc {
     </ul>
 </body>
 </html>`
+
+		// Вычисляем хеш для ответа
+		data := []byte(htmlContent)
+		if key != "" {
+			hash := computeHash(data, key)
+			w.Header().Set("HashSHA256", hash)
+		}
 
 		w.Write([]byte(htmlContent))
 	}

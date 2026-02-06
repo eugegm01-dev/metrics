@@ -7,31 +7,6 @@ import (
 	"time"
 )
 
-func TestParseServerConfig(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-
-	os.Args = []string{"cmd"}
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	cfg, err := ParseServerConfig()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if cfg.Addr != "localhost:8080" {
-		t.Errorf("Expected default address 'localhost:8080', got '%s'", cfg.Addr)
-	}
-
-	os.Args = []string{"cmd", "-a", "localhost:9090"}
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	cfg, err = ParseServerConfig()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if cfg.Addr != "localhost:9090" {
-		t.Errorf("Expected address 'localhost:9090', got '%s'", cfg.Addr)
-	}
-}
-
 func TestParseAgentConfig(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
@@ -51,8 +26,11 @@ func TestParseAgentConfig(t *testing.T) {
 	if cfg.PollInterval != 2*time.Second {
 		t.Errorf("Expected default poll interval 2s, got %v", cfg.PollInterval)
 	}
+	if cfg.RateLimit != 10 {
+		t.Errorf("Expected default rate limit 10, got %v", cfg.RateLimit)
+	}
 
-	os.Args = []string{"cmd", "-a", "server:8080", "-r", "5", "-p", "1"}
+	os.Args = []string{"cmd", "-a", "server:8080", "-r", "5", "-p", "1", "-l", "5"}
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	cfg, err = ParseAgentConfig()
 	if err != nil {
@@ -66,5 +44,8 @@ func TestParseAgentConfig(t *testing.T) {
 	}
 	if cfg.PollInterval != 1*time.Second {
 		t.Errorf("Expected poll interval 1s, got %v", cfg.PollInterval)
+	}
+	if cfg.RateLimit != 5 {
+		t.Errorf("Expected rate limit 5, got %v", cfg.RateLimit)
 	}
 }

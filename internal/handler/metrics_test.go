@@ -13,12 +13,12 @@ import (
 )
 
 func TestGetMetricHandler(t *testing.T) {
-	// Используем NewMemStorage как обычно
 	storage := repository.NewMemStorage()
 	storage.UpdateCounter("test", 42)
 
 	r := chi.NewRouter()
-	r.Get("/value/{type}/{name}", GetMetricHandler(storage))
+	// Передаем пустую строку как ключ (для тестов)
+	r.Get("/value/{type}/{name}", GetMetricHandler(storage, ""))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
@@ -48,7 +48,8 @@ func TestUpdateJSONHandler(t *testing.T) {
 	storage := repository.NewMemStorage()
 
 	r := chi.NewRouter()
-	r.Post("/update", UpdateJSONHandler(storage))
+	// Передаем пустую строку как ключ
+	r.Post("/update", UpdateJSONHandler(storage, ""))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
@@ -81,7 +82,8 @@ func TestValueJSONHandler(t *testing.T) {
 	storage.UpdateCounter("testCounter", 100)
 
 	r := chi.NewRouter()
-	r.Post("/value", ValueJSONHandler(storage))
+	// Передаем пустую строку как ключ
+	r.Post("/value", ValueJSONHandler(storage, ""))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()

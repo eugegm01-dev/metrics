@@ -8,6 +8,7 @@ import (
 
 	"github.com/eugegm01-dev/metrics/internal/agent"
 	"github.com/eugegm01-dev/metrics/internal/config"
+	"github.com/eugegm01-dev/metrics/internal/model" // Добавьте этот импорт
 )
 
 func RunAgent() error {
@@ -22,40 +23,86 @@ func RunAgent() error {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	logger.Info("Agent started with configuration",
-		zap.String("server_address", cfg.ServerAddr),
-		zap.Duration("poll_interval", cfg.PollInterval),
-		zap.Duration("report_interval", cfg.ReportInterval),
+	logger.Info("Agent started",
+		zap.String("server", cfg.ServerAddr),
+		zap.Duration("poll", cfg.PollInterval),
+		zap.Duration("report", cfg.ReportInterval),
+		zap.Int("rate_limit", cfg.RateLimit),
+		zap.String("key", cfg.Key), // Логируем наличие ключа
 	)
 
 	agentInstance := agent.NewAgent()
-	pollTicker := time.NewTicker(cfg.PollInterval)
-	reportTicker := time.NewTicker(cfg.ReportInterval)
-	defer pollTicker.Stop()
-	defer reportTicker.Stop()
 
-	for {
-		select {
-		case <-pollTicker.C:
-			logger.Debug("Poll tick → collecting metrics")
-			agentInstance.CollectMetrics()
+	metricsChan := make(chan []agent.Metric, 100)
+	done := make(chan struct{})
 
-		case <-reportTicker.C:
-			logger.Debug("Report tick → sending metrics")
-			metrics := agentInstance.GetCurrentMetrics()
-			if len(metrics) > 0 {
-				preparedMetrics := agentInstance.PrepareMetricsForSend(metrics)
-				if err := agent.SendMetricsBatch(cfg.ServerAddr, preparedMetrics); err != nil {
-					logger.Error("Failed to send metrics to server after retries",
-						zap.Error(err),
-						zap.Int("metrics_count", len(preparedMetrics)),
-					)
-				} else {
-					logger.Info("Metrics successfully sent as batch",
-						zap.Int("metrics_count", len(preparedMetrics)),
-					)
+	// Горутина 1: сбор runtime метрик
+	go func() {
+		ticker := time.NewTicker(cfg.PollInterval)
+		defer ticker.Stop()
+		defer close(done)
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				metrics := agentInstance.CollectRuntimeMetrics()
+				metricsChan <- metrics
+			}
+		}
+	}()
+
+	// Горутина 2: сбор системных метрик через gopsutil
+	go func() {
+		ticker := time.NewTicker(cfg.PollInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				metrics := agentInstance.CollectSystemMetrics()
+				if len(metrics) > 0 {
+					metricsChan <- metrics
 				}
 			}
 		}
+	}()
+
+	// Пул воркеров для отправки метрик
+	for i := 0; i < cfg.RateLimit; i++ {
+		go func(workerID int) {
+			for metrics := range metricsChan {
+				prepared := agentInstance.PrepareMetricsForSend(metrics)
+				// Преобразуем agent.Metric в model.Metrics
+				var modelMetrics []model.Metrics
+				for _, m := range prepared {
+					metric := model.Metrics{
+						ID:    m.ID,
+						MType: m.MType,
+					}
+					switch m.MType {
+					case model.Gauge:
+						value := m.Value
+						metric.Value = &value
+					case model.Counter:
+						delta := m.Delta
+						metric.Delta = &delta
+					}
+					modelMetrics = append(modelMetrics, metric)
+				}
+				// Передаем ключ в функцию отправки
+				if err := agent.SendMetricsBatch(cfg.ServerAddr, modelMetrics, cfg.Key); err != nil {
+					logger.Error("Failed to send metrics",
+						zap.Int("worker", workerID),
+						zap.Error(err),
+					)
+				}
+			}
+		}(i)
 	}
+
+	// Ожидание сигнала завершения
+	<-done
+	return nil
 }
