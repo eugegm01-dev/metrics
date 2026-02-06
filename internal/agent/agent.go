@@ -23,19 +23,59 @@ type Agent struct {
 	pollCount         int64
 	lastSentPollCount int64
 	mu                sync.RWMutex
-	currentMetrics    []Metric
+	metricsChan       chan []Metric
+	workers           []*worker
+	rateLimit         int
+}
+type worker struct {
+	id      int
+	metrics <-chan []Metric
+	done    chan struct{}
 }
 
-func NewAgent() *Agent {
+func NewAgent(rateLimit int) *Agent {
 	return &Agent{
 		pollCount:         0,
 		lastSentPollCount: 0,
-		currentMetrics:    make([]Metric, 0),
+		metricsChan:       make(chan []Metric, 100),
+		rateLimit:         rateLimit,
+	}
+}
+func (w *worker) run(processFunc func([]Metric)) {
+	for {
+		select {
+		case metrics := <-w.metrics:
+			processFunc(metrics)
+		case <-w.done:
+			return
+		}
+	}
+}
+
+func (a *Agent) StartWorkers(processFunc func([]Metric)) {
+	for i := 0; i < a.rateLimit; i++ {
+		w := &worker{
+			id:      i,
+			metrics: a.metricsChan,
+			done:    make(chan struct{}),
+		}
+		a.workers = append(a.workers, w)
+		go w.run(processFunc)
 	}
 }
 
 func (a *Agent) IncrementPollCount() {
 	atomic.AddInt64(&a.pollCount, 1)
+}
+func (a *Agent) StopWorkers() {
+	for _, w := range a.workers {
+		close(w.done)
+	}
+	close(a.metricsChan)
+}
+
+func (a *Agent) SendMetrics(metrics []Metric) {
+	a.metricsChan <- metrics
 }
 
 func (a *Agent) GetPollCount() int64 {
@@ -92,7 +132,7 @@ func collectSystemMetrics() []Metric {
 		)
 	}
 
-	// Сбор метрик CPU через gopsutil
+	// Сбор метрик CPU через gopsutil - по ядрам
 	if cpuPercent, err := cpu.Percent(0, true); err == nil {
 		for i, percent := range cpuPercent {
 			metrics = append(metrics,
