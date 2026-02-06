@@ -180,9 +180,6 @@ func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc 
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-
 		var response models.Metrics
 		response.ID = metric.ID
 		response.MType = metric.MType
@@ -210,7 +207,9 @@ func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc 
 			w.Header().Set("HashSHA256", hash)
 		}
 
-		// Пишем ответ
+		// Устанавливаем заголовки и пишем ответ
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		w.Write(buf.Bytes())
 	}
 }
@@ -311,16 +310,9 @@ func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 			http.Error(w, "Invalid metric type", http.StatusBadRequest)
 			return
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		enc := json.NewEncoder(w)
-		enc.Encode(response)
-		// Кодируем ответ
-
+		// Кодируем ответ в буфер
 		var buf bytes.Buffer
-
-		enc = json.NewEncoder(&buf)
+		enc := json.NewEncoder(&buf)
 		if err := enc.Encode(response); err != nil {
 			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 			return
@@ -332,9 +324,10 @@ func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 			w.Header().Set("HashSHA256", hash)
 		}
 
-		// Пишем ответ
+		// Устанавливаем заголовки и пишем ответ
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		w.Write(buf.Bytes())
-
 	}
 }
 
