@@ -1,6 +1,6 @@
 module github.com/eugegm01-dev/metrics
 
-go 1.24.0
+go 1.25
 
 require (
 	github.com/go-chi/chi/v5 v5.2.3
@@ -13,6 +13,7 @@ require (
 )
 
 require (
+	github.com/avast/retry-go/v4 v4.7.0
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

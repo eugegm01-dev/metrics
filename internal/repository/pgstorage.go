@@ -3,8 +3,11 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
@@ -12,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pressly/goose/v3"
 )
+
+var migrationFiles embed.FS
 
 type PGStorage struct {
 	db *sql.DB
@@ -22,8 +27,17 @@ func NewPGStorage(db *sql.DB) (*PGStorage, error) {
 		return nil, fmt.Errorf("database connection is nil")
 	}
 
-	// Goose теперь работает с директорией миграций
-	if err := goose.Up(db, "migrations"); err != nil {
+	// Определяем путь к миграциям
+	_, filename, _, _ := runtime.Caller(0)
+	currentDir := filepath.Dir(filename)
+	migrationsDir := filepath.Join(currentDir, "../../migrations")
+
+	goose.SetBaseFS(migrationFiles) // если используете embed
+	if err := goose.SetDialect("postgres"); err != nil {
+		return nil, fmt.Errorf("goose set dialect: %w", err)
+	}
+
+	if err := goose.Up(db, migrationsDir); err != nil {
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
