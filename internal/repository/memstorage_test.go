@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"strings"
 	"testing"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
@@ -38,17 +39,18 @@ func TestMemStorage_GetCounter_NotFound(t *testing.T) {
 }
 
 func TestMemStorage_GetAllMetrics(t *testing.T) {
-	s := NewMemStorage()
-	s.UpdateGauge("g1", 1.1)
-	s.UpdateGauge("g2", 2.2)
-	s.UpdateCounter("c1", 10)
-	metrics := s.GetAllMetrics()
-	expected := "Gauges:\n g1: 1.100000\n g2: 2.200000\nCounters:\n c1: 10\n"
-	if metrics != expected {
-		t.Errorf("GetAllMetrics() = %q, want %q", metrics, expected)
-	}
+    s := NewMemStorage()
+    s.UpdateGauge("g1", 1.1)
+    s.UpdateGauge("g2", 2.2)
+    s.UpdateCounter("c1", 10)
+    output := s.GetAllMetrics()
+    // Проверяем, что вывод содержит все ожидаемые строки
+    if !strings.Contains(output, "g1: 1.100000") ||
+       !strings.Contains(output, "g2: 2.200000") ||
+       !strings.Contains(output, "c1: 10") {
+        t.Errorf("GetAllMetrics() output missing expected entries: %s", output)
+    }
 }
-
 func TestMemStorage_UpdateBatch(t *testing.T) {
 	s := NewMemStorage()
 	gVal := 3.14

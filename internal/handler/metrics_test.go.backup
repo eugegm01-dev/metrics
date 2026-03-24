@@ -41,3 +41,39 @@ func TestGetMetricHandler(t *testing.T) {
 		t.Errorf("Expected 404, got %d", resp.StatusCode)
 	}
 }
+func TestUpdateHandler(t *testing.T) {
+    storage := repository.NewMemStorage()
+    handler := UpdateHandler(storage, "")
+
+    // Тест gauge
+    req := httptest.NewRequest("POST", "/update/gauge/test/1.23", nil)
+    w := httptest.NewRecorder()
+    handler.ServeHTTP(w, req)
+    if w.Code != http.StatusOK {
+        t.Errorf("Expected 200, got %d", w.Code)
+    }
+    val, ok := storage.GetGauge("test")
+    if !ok || val != 1.23 {
+        t.Errorf("Gauge not updated: %v, %v", val, ok)
+    }
+
+    // Тест counter
+    req = httptest.NewRequest("POST", "/update/counter/test_counter/10", nil)
+    w = httptest.NewRecorder()
+    handler.ServeHTTP(w, req)
+    if w.Code != http.StatusOK {
+        t.Errorf("Expected 200, got %d", w.Code)
+    }
+    valC, ok := storage.GetCounter("test_counter")
+    if !ok || valC != 10 {
+        t.Errorf("Counter not updated: %v, %v", valC, ok)
+    }
+
+    // Неправильный тип
+    req = httptest.NewRequest("POST", "/update/invalid/test/1.23", nil)
+    w = httptest.NewRecorder()
+    handler.ServeHTTP(w, req)
+    if w.Code != http.StatusBadRequest {
+        t.Errorf("Expected 400, got %d", w.Code)
+    }
+}

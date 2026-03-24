@@ -138,3 +138,20 @@ func TestUpdatesHandler(t *testing.T) {
 		t.Errorf("Counter not updated: %v, %v", val, ok)
 	}
 }
+func TestIndexHTMLHandler(t *testing.T) {
+    storage := repository.NewMemStorage()
+    storage.UpdateGauge("test", 1.23)
+    handler := IndexHTMLHandler(storage, "")
+
+    req := httptest.NewRequest("GET", "/", nil)
+    rr := httptest.NewRecorder()
+    handler.ServeHTTP(rr, req)
+
+    if rr.Code != http.StatusOK {
+        t.Errorf("Expected 200, got %d", rr.Code)
+    }
+    body := rr.Body.String()
+    if !strings.Contains(body, "test: 1.230000") {
+        t.Error("Metric not found in HTML")
+    }
+}

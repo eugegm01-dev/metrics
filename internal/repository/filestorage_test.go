@@ -83,21 +83,26 @@ func TestFileStorage_PeriodicSave(t *testing.T) {
         t.Fatal(err)
     }
     tmpName := tmpFile.Name()
-    tmpFile.Close()
+    tmpFile.Close() // закрываем, чтобы при создании хранилища не было конфликта
     defer os.Remove(tmpName)
 
     fs, err := NewFileStorage(tmpName, 100*time.Millisecond, false)
     if err != nil {
         t.Fatal(err)
     }
-    defer fs.Close()
-
     fs.UpdateGauge("test", 99.99)
+
+    // Даём время на периодическое сохранение
     time.Sleep(200 * time.Millisecond)
-    // дополнительное явное сохранение для надёжности
+
+    // Явное сохранение и закрытие
     if err := fs.SaveToFile(); err != nil {
         t.Fatal(err)
     }
+    fs.Close()
+
+    // Ждём, пока горутина periodicSave завершится
+    time.Sleep(50 * time.Millisecond)
 
     fs2, err := NewFileStorage(tmpName, 0, true)
     if err != nil {
