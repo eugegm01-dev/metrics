@@ -159,23 +159,19 @@ func initStorage(cfg *config.ServerConfig, db *sql.DB, logger *zap.Logger) (repo
 }
 
 func initRouter(storage repository.Storage, logger *zap.Logger, key string, auditSubject *audit.Subject) *chi.Mux {
-     r := chi.NewRouter()
-     r.Use(chiMiddleware.Recoverer)
-     r.Use(middleware.GzipMiddleware)
-     r.Use(middleware.LoggingMiddleware(logger))
-     r.Use(middleware.HashMiddleware(key))
+	r := chi.NewRouter()
+	r.Use(chiMiddleware.Recoverer)
+	r.Use(middleware.GzipMiddleware)
+	r.Use(middleware.LoggingMiddleware(logger))
+	r.Use(middleware.HashMiddleware(key))
 
-
-    // pprof endpoints
-        r.HandleFunc("/debug/pprof/", pprof.Index)
-        r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-        r.HandleFunc("/debug/pprof/profile", pprof.Profile)
-        r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-        r.HandleFunc("/debug/pprof/trace", pprof.Trace)
-            r.Mount("/debug/pprof", http.HandlerFunc(pprof.Index))
-
-
-
+	// pprof endpoints
+	r.HandleFunc("/debug/pprof/", pprof.Index)
+	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	r.Mount("/debug/pprof", http.HandlerFunc(pprof.Index))
 
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

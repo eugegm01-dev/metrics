@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+     "bytes"
+
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
 	"github.com/eugegm01-dev/metrics/internal/repository"
@@ -108,5 +110,31 @@ func TestValueJSONHandler(t *testing.T) {
 
 	if *result.Value != 42.5 {
 		t.Errorf("Expected 42.5, got %f", *result.Value)
+	}
+}
+func TestUpdatesHandler(t *testing.T) {
+	storage := repository.NewMemStorage()
+	handler := UpdatesHandler(storage, "", nil)
+
+	// создаём запрос с батчем
+	metrics := []models.Metrics{
+		{ID: "g1", MType: models.Gauge, Value: func() *float64 { v := 1.1; return &v }()},
+		{ID: "c1", MType: models.Counter, Delta: func() *int64 { v := int64(5); return &v }()},
+	}
+	body, _ := json.Marshal(metrics)
+
+	req := httptest.NewRequest("POST", "/updates", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d", w.Code)
+	}
+	if val, ok := storage.GetGauge("g1"); !ok || val != 1.1 {
+		t.Errorf("Gauge not updated: %v, %v", val, ok)
+	}
+	if val, ok := storage.GetCounter("c1"); !ok || val != 5 {
+		t.Errorf("Counter not updated: %v, %v", val, ok)
 	}
 }

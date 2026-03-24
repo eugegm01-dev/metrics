@@ -1,29 +1,81 @@
 package repository
 
 import (
-	"fmt"
 	"testing"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
 )
 
-func BenchmarkMemStorage_UpdateGauge(b *testing.B) {
+func TestMemStorage_UpdateGauge(t *testing.T) {
 	s := NewMemStorage()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		s.UpdateGauge("test", float64(i))
+	s.UpdateGauge("test", 42.5)
+	if val, ok := s.GetGauge("test"); !ok || val != 42.5 {
+		t.Errorf("GetGauge() = %v, %v; want 42.5, true", val, ok)
 	}
 }
 
-func BenchmarkMemStorage_UpdateBatch(b *testing.B) {
+func TestMemStorage_UpdateCounter(t *testing.T) {
 	s := NewMemStorage()
-	metrics := make([]models.Metrics, 100)
-	for i := range metrics {
-		val := float64(i)
-		metrics[i] = models.Metrics{ID: fmt.Sprintf("g%d", i), MType: models.Gauge, Value: &val}
+	s.UpdateCounter("test", 10)
+	s.UpdateCounter("test", 5)
+	if val, ok := s.GetCounter("test"); !ok || val != 15 {
+		t.Errorf("GetCounter() = %v, %v; want 15, true", val, ok)
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = s.UpdateBatch(metrics)
+}
+
+func TestMemStorage_GetGauge_NotFound(t *testing.T) {
+	s := NewMemStorage()
+	if val, ok := s.GetGauge("missing"); ok || val != 0 {
+		t.Errorf("GetGauge() = %v, %v; want 0, false", val, ok)
+	}
+}
+
+func TestMemStorage_GetCounter_NotFound(t *testing.T) {
+	s := NewMemStorage()
+	if val, ok := s.GetCounter("missing"); ok || val != 0 {
+		t.Errorf("GetCounter() = %v, %v; want 0, false", val, ok)
+	}
+}
+
+func TestMemStorage_GetAllMetrics(t *testing.T) {
+	s := NewMemStorage()
+	s.UpdateGauge("g1", 1.1)
+	s.UpdateGauge("g2", 2.2)
+	s.UpdateCounter("c1", 10)
+	metrics := s.GetAllMetrics()
+	expected := "Gauges:\n g1: 1.100000\n g2: 2.200000\nCounters:\n c1: 10\n"
+	if metrics != expected {
+		t.Errorf("GetAllMetrics() = %q, want %q", metrics, expected)
+	}
+}
+
+func TestMemStorage_UpdateBatch(t *testing.T) {
+	s := NewMemStorage()
+	gVal := 3.14
+	cVal := int64(100)
+	metrics := []models.Metrics{
+		{ID: "g1", MType: models.Gauge, Value: &gVal},
+		{ID: "c1", MType: models.Counter, Delta: &cVal},
+	}
+	err := s.UpdateBatch(metrics)
+	if err != nil {
+		t.Fatalf("UpdateBatch failed: %v", err)
+	}
+	if val, ok := s.GetGauge("g1"); !ok || val != 3.14 {
+		t.Errorf("GetGauge('g1') = %v, %v; want 3.14, true", val, ok)
+	}
+	if val, ok := s.GetCounter("c1"); !ok || val != 100 {
+		t.Errorf("GetCounter('c1') = %v, %v; want 100, true", val, ok)
+	}
+}
+
+func TestMemStorage_UpdateBatch_Invalid(t *testing.T) {
+	s := NewMemStorage()
+	metrics := []models.Metrics{
+		{ID: "bad", MType: models.Gauge, Value: nil},
+	}
+	err := s.UpdateBatch(metrics)
+	if err == nil {
+		t.Error("UpdateBatch with nil Value should return error")
 	}
 }
