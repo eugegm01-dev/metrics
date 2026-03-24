@@ -152,8 +152,6 @@ func UpdatesHandler(storage repository.Storage, key string, auditSubject *audit.
 // UpdateJSONHandler обрабатывает обновление метрики через JSON
 func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Проверка метода удалена — chi/Post уже гарантирует POST
-
 		if r.Header.Get("Content-Type") != "application/json" {
 			http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
 			return
@@ -170,28 +168,24 @@ func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc 
 			http.Error(w, "Metric name (id) is required", http.StatusBadRequest)
 			return
 		}
-
-		// Исправлено: models вместо model
 		if metric.MType != models.Gauge && metric.MType != models.Counter {
 			http.Error(w, "Invalid metric type. Must be 'gauge' or 'counter'", http.StatusBadRequest)
 			return
 		}
 
 		switch metric.MType {
-		case models.Gauge: // Исправлено
+		case models.Gauge:
 			if metric.Value == nil {
 				http.Error(w, "Value is required for gauge", http.StatusBadRequest)
 				return
 			}
 			storage.UpdateGauge(metric.ID, *metric.Value)
-
-		case models.Counter: // Исправлено
+		case models.Counter:
 			if metric.Delta == nil {
 				http.Error(w, "Delta is required for counter", http.StatusBadRequest)
 				return
 			}
 			storage.UpdateCounter(metric.ID, *metric.Delta)
-
 		default:
 			http.Error(w, "Invalid metric type", http.StatusBadRequest)
 			return
@@ -200,17 +194,15 @@ func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc 
 		var response models.Metrics
 		response.ID = metric.ID
 		response.MType = metric.MType
-
 		switch metric.MType {
-		case models.Gauge: // Исправлено
+		case models.Gauge:
 			val, _ := storage.GetGauge(metric.ID)
 			response.Value = &val
-		case models.Counter: // Исправлено
+		case models.Counter:
 			val, _ := storage.GetCounter(metric.ID)
 			response.Delta = &val
 		}
 
-		// Кодируем ответ
 		var buf bytes.Buffer
 		enc := json.NewEncoder(&buf)
 		if err := enc.Encode(response); err != nil {
@@ -218,13 +210,11 @@ func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc 
 			return
 		}
 
-		// Вычисляем хеш, если ключ задан
 		if key != "" {
 			hash := computeHash(buf.Bytes(), key)
 			w.Header().Set("HashSHA256", hash)
 		}
 
-		// Устанавливаем заголовки и пишем ответ
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(buf.Bytes())

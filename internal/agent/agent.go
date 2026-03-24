@@ -27,6 +27,7 @@ type Agent struct {
 	workers           []*worker
 	rateLimit         int
 }
+
 type worker struct {
 	id      int
 	metrics <-chan []Metric
@@ -41,6 +42,7 @@ func NewAgent(rateLimit int) *Agent {
 		rateLimit:         rateLimit,
 	}
 }
+
 func (w *worker) run(processFunc func([]Metric)) {
 	for {
 		select {
@@ -67,6 +69,7 @@ func (a *Agent) StartWorkers(processFunc func([]Metric)) {
 func (a *Agent) IncrementPollCount() {
 	atomic.AddInt64(&a.pollCount, 1)
 }
+
 func (a *Agent) StopWorkers() {
 	for _, w := range a.workers {
 		close(w.done)
@@ -86,45 +89,45 @@ func collectRuntimeMetrics() []Metric {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
 
-	metrics := []Metric{
-		{ID: "Alloc", MType: model.Gauge, Value: float64(stats.Alloc)},
-		{ID: "BuckHashSys", MType: model.Gauge, Value: float64(stats.BuckHashSys)},
-		{ID: "Frees", MType: model.Gauge, Value: float64(stats.Frees)},
-		{ID: "GCCPUFraction", MType: model.Gauge, Value: stats.GCCPUFraction},
-		{ID: "GCSys", MType: model.Gauge, Value: float64(stats.GCSys)},
-		{ID: "HeapAlloc", MType: model.Gauge, Value: float64(stats.HeapAlloc)},
-		{ID: "HeapIdle", MType: model.Gauge, Value: float64(stats.HeapIdle)},
-		{ID: "HeapInuse", MType: model.Gauge, Value: float64(stats.HeapInuse)},
-		{ID: "HeapObjects", MType: model.Gauge, Value: float64(stats.HeapObjects)},
-		{ID: "HeapReleased", MType: model.Gauge, Value: float64(stats.HeapReleased)},
-		{ID: "HeapSys", MType: model.Gauge, Value: float64(stats.HeapSys)},
-		{ID: "LastGC", MType: model.Gauge, Value: float64(stats.LastGC)},
-		{ID: "Lookups", MType: model.Gauge, Value: float64(stats.Lookups)},
-		{ID: "MCacheInuse", MType: model.Gauge, Value: float64(stats.MCacheInuse)},
-		{ID: "MCacheSys", MType: model.Gauge, Value: float64(stats.MCacheSys)},
-		{ID: "MSpanInuse", MType: model.Gauge, Value: float64(stats.MSpanInuse)},
-		{ID: "MSpanSys", MType: model.Gauge, Value: float64(stats.MSpanSys)},
-		{ID: "Mallocs", MType: model.Gauge, Value: float64(stats.Mallocs)},
-		{ID: "NextGC", MType: model.Gauge, Value: float64(stats.NextGC)},
-		{ID: "NumForcedGC", MType: model.Gauge, Value: float64(stats.NumForcedGC)},
-		{ID: "NumGC", MType: model.Gauge, Value: float64(stats.NumGC)},
-		{ID: "OtherSys", MType: model.Gauge, Value: float64(stats.OtherSys)},
-		{ID: "PauseTotalNs", MType: model.Gauge, Value: float64(stats.PauseTotalNs)},
-		{ID: "StackInuse", MType: model.Gauge, Value: float64(stats.StackInuse)},
-		{ID: "StackSys", MType: model.Gauge, Value: float64(stats.StackSys)},
-		{ID: "Sys", MType: model.Gauge, Value: float64(stats.Sys)},
-		{ID: "TotalAlloc", MType: model.Gauge, Value: float64(stats.TotalAlloc)},
-		// Добавляем RandomValue
-		{ID: "RandomValue", MType: model.Gauge, Value: rand.Float64()},
-	}
+	// известное количество метрик (27)
+	metrics := make([]Metric, 0, 27)
 
+	metrics = append(metrics,
+		Metric{ID: "Alloc", MType: model.Gauge, Value: float64(stats.Alloc)},
+		Metric{ID: "BuckHashSys", MType: model.Gauge, Value: float64(stats.BuckHashSys)},
+		Metric{ID: "Frees", MType: model.Gauge, Value: float64(stats.Frees)},
+		Metric{ID: "GCCPUFraction", MType: model.Gauge, Value: stats.GCCPUFraction},
+		Metric{ID: "GCSys", MType: model.Gauge, Value: float64(stats.GCSys)},
+		Metric{ID: "HeapAlloc", MType: model.Gauge, Value: float64(stats.HeapAlloc)},
+		Metric{ID: "HeapIdle", MType: model.Gauge, Value: float64(stats.HeapIdle)},
+		Metric{ID: "HeapInuse", MType: model.Gauge, Value: float64(stats.HeapInuse)},
+		Metric{ID: "HeapObjects", MType: model.Gauge, Value: float64(stats.HeapObjects)},
+		Metric{ID: "HeapReleased", MType: model.Gauge, Value: float64(stats.HeapReleased)},
+		Metric{ID: "HeapSys", MType: model.Gauge, Value: float64(stats.HeapSys)},
+		Metric{ID: "LastGC", MType: model.Gauge, Value: float64(stats.LastGC)},
+		Metric{ID: "Lookups", MType: model.Gauge, Value: float64(stats.Lookups)},
+		Metric{ID: "MCacheInuse", MType: model.Gauge, Value: float64(stats.MCacheInuse)},
+		Metric{ID: "MCacheSys", MType: model.Gauge, Value: float64(stats.MCacheSys)},
+		Metric{ID: "MSpanInuse", MType: model.Gauge, Value: float64(stats.MSpanInuse)},
+		Metric{ID: "MSpanSys", MType: model.Gauge, Value: float64(stats.MSpanSys)},
+		Metric{ID: "Mallocs", MType: model.Gauge, Value: float64(stats.Mallocs)},
+		Metric{ID: "NextGC", MType: model.Gauge, Value: float64(stats.NextGC)},
+		Metric{ID: "NumForcedGC", MType: model.Gauge, Value: float64(stats.NumForcedGC)},
+		Metric{ID: "NumGC", MType: model.Gauge, Value: float64(stats.NumGC)},
+		Metric{ID: "OtherSys", MType: model.Gauge, Value: float64(stats.OtherSys)},
+		Metric{ID: "PauseTotalNs", MType: model.Gauge, Value: float64(stats.PauseTotalNs)},
+		Metric{ID: "StackInuse", MType: model.Gauge, Value: float64(stats.StackInuse)},
+		Metric{ID: "StackSys", MType: model.Gauge, Value: float64(stats.StackSys)},
+		Metric{ID: "Sys", MType: model.Gauge, Value: float64(stats.Sys)},
+		Metric{ID: "TotalAlloc", MType: model.Gauge, Value: float64(stats.TotalAlloc)},
+		Metric{ID: "RandomValue", MType: model.Gauge, Value: rand.Float64()},
+	)
 	return metrics
 }
 
 func collectSystemMetrics() []Metric {
 	var metrics []Metric
 
-	// Сбор метрик памяти через gopsutil
 	if vmStat, err := mem.VirtualMemory(); err == nil {
 		metrics = append(metrics,
 			Metric{ID: "TotalMemory", MType: model.Gauge, Value: float64(vmStat.Total)},
@@ -132,7 +135,6 @@ func collectSystemMetrics() []Metric {
 		)
 	}
 
-	// Сбор метрик CPU через gopsutil - по ядрам
 	if cpuPercent, err := cpu.Percent(0, true); err == nil {
 		for i, percent := range cpuPercent {
 			metrics = append(metrics,

@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 
+	_ "net/http/pprof"
+
 	"github.com/eugegm01-dev/metrics/internal/app"
 	"go.uber.org/zap"
 )
