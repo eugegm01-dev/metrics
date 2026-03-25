@@ -11,7 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// FileStorage — обёртка над MemStorage с сохранением в файл
+// FileStorage оборачивает MemStorage и сохраняет метрики в файл.
+// Может сохранять периодически или по требованию.
 type FileStorage struct {
 	*MemStorage   // встроенное поле — делегируем все операции с данными
 	filePath      string
@@ -21,7 +22,10 @@ type FileStorage struct {
 	lastSaved     time.Time
 }
 
-// NewFileStorage создаёт файловое хранилище
+// NewFileStorage создаёт новый FileStorage.
+// Если filePath пуст, используется временный файл.
+// storeInterval – интервал периодического сохранения (0 – только по требованию).
+// restore – загружать ли данные из файла при запуске.
 func NewFileStorage(filePath string, storeInterval time.Duration, restore bool) (*FileStorage, error) {
 	mem := NewMemStorage()
 	// Если путь пустой или не указан, используем временную директорию
@@ -156,15 +160,17 @@ func (s *FileStorage) periodicSave() {
 	}
 }
 
-// SaveToFile — публичный метод (для metricstest и эндпоинта /save)
+// SaveToFile сохраняет текущие метрики в файл.
 func (s *FileStorage) SaveToFile() error {
 	return s.saveToFile()
 }
 
-// Close — завершает работу с финальным сохранением
+// Close останавливает периодическое сохранение и выполняет финальную запись.
 func (s *FileStorage) Close() {
 	close(s.stopChan)
 }
+
+// UpdateBatch обновляет несколько метрик за одну операцию.
 func (s *FileStorage) UpdateBatch(metrics []models.Metrics) error {
 	// Используем метод MemStorage
 	if err := s.MemStorage.UpdateBatch(metrics); err != nil {

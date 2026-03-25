@@ -19,7 +19,9 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// UpdateHandler обрабатывает обновление метрики через URL параметры
+// UpdateHandler обрабатывает устаревший URL-путь обновления одной метрики (gauge/counter).
+// Ожидает POST /update/{type}/{name}/{value}.
+
 func UpdateHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -64,7 +66,9 @@ func UpdateHandler(storage repository.Storage, key string) http.HandlerFunc {
 	}
 }
 
-// UpdatesHandler обрабатывает обновление множества метрик за один запрос
+// UpdatesHandler обрабатывает пакетное обновление метрик через POST /updates.
+// Принимает JSON-массив Metrics и обновляет хранилище за одну операцию.
+// Если передан auditSubject, событие логируется.
 func UpdatesHandler(storage repository.Storage, key string, auditSubject *audit.Subject) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -149,7 +153,9 @@ func UpdatesHandler(storage repository.Storage, key string, auditSubject *audit.
 	}
 }
 
-// UpdateJSONHandler обрабатывает обновление метрики через JSON
+// UpdateJSONHandler обрабатывает обновление одной метрики через JSON-полезную нагрузку (POST /update).
+// Ожидает объект JSON с полями id, type и value/delta.
+// Возвращает обновлённую метрику в JSON с заголовком хеша, если передан ключ.
 func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Content-Type") != "application/json" {
@@ -232,6 +238,8 @@ func computeHash(data []byte, key string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// GetMetricHandler возвращает значение метрики в виде обычного текста для заданных типа и имени (GET /value/{type}/{name}).
+
 func GetMetricHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -270,7 +278,8 @@ func GetMetricHandler(storage repository.Storage, key string) http.HandlerFunc {
 	}
 }
 
-// ValueJSONHandler возвращает значение метрики в формате JSON
+// ValueJSONHandler возвращает значение метрики в формате JSON (POST /value).
+// Ожидает объект JSON с полями id и type, в ответе возвращает значение.
 func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Проверка метода удалена — chi/Post уже гарантирует POST
@@ -337,6 +346,8 @@ func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 		w.Write(buf.Bytes())
 	}
 }
+
+// IndexHTMLHandler возвращает HTML-страницу со списком всех метрик (GET /).
 
 func IndexHTMLHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

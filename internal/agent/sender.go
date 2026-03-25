@@ -63,7 +63,8 @@ func computeHash(data []byte, key string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// SendMetricsBatch отправляет метрики батчами с использованием go-retryablehttp
+// SendMetricsBatch отправляет несколько метрик одним POST-запросом на эндпоинт /updates.
+// Сжимает тело запроса gzip и при необходимости добавляет заголовок хеша.
 func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) error {
 	if len(metrics) == 0 {
 		return nil
@@ -116,7 +117,8 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) e
 	return nil
 }
 
-// SendMetrics отправляет одиночные метрики (для обратной совместимости)
+// SendMetrics отправляет каждую метрику по отдельности через эндпоинт /update.
+// Оставлен для обратной совместимости; рекомендуется использовать SendMetricsBatch.
 func SendMetrics(serverAddr string, metrics []models.Metrics, key string) error {
 	for _, metric := range metrics {
 		jsonData, err := json.Marshal(metric)

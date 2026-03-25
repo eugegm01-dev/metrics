@@ -8,13 +8,13 @@ import (
 	"time"
 )
 
-// HTTPObserver отправляет события аудита на удалённый сервер
+// HTTPObserver отправляет события аудита на удалённый HTTP-эндпоинт.
 type HTTPObserver struct {
 	url    string
 	client *http.Client
 }
 
-// NewHTTPObserver создаёт наблюдателя для отправки по HTTP
+// NewHTTPObserver создаёт HTTPObserver, отправляющий события на указанный URL.
 func NewHTTPObserver(url string) *HTTPObserver {
 	return &HTTPObserver{
 		url: url,
@@ -24,7 +24,7 @@ func NewHTTPObserver(url string) *HTTPObserver {
 	}
 }
 
-// Update отправляет событие на сервер
+// Update отправляет событие аудита через POST-запрос с JSON-телом.
 func (h *HTTPObserver) Update(event *AuditEvent) error {
 	data, err := json.Marshal(event)
 	if err != nil {
@@ -50,7 +50,7 @@ func (h *HTTPObserver) Update(event *AuditEvent) error {
 	return nil
 }
 
-// Close закрывает клиент (не требуется для http.Client)
+// Close – заглушка для HTTPObserver.
 func (h *HTTPObserver) Close() error {
 	return nil
 }

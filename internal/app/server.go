@@ -25,6 +25,8 @@ import (
 	"github.com/eugegm01-dev/metrics/internal/repository"
 )
 
+// RunServer запускает HTTP-сервер с конфигурацией из флагов и переменных окружения.
+// Инициализирует хранилище, базу данных (если настроена) и регистрирует все маршруты.
 func RunServer() error {
 	logger, err := zap.NewDevelopment()
 	if err != nil {

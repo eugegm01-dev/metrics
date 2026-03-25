@@ -11,6 +11,8 @@ import (
 	"github.com/eugegm01-dev/metrics/internal/model"
 )
 
+// RunAgent запускает агент с конфигурацией из флагов и переменных окружения.
+// Периодически собирает и отправляет метрики на сервер.
 func RunAgent() error {
 	logger, err := zap.NewDevelopment()
 	if err != nil {

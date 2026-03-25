@@ -12,6 +12,8 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
+// Metric представляет собой одну собранную метрику.
+// Содержит идентификатор, тип (gauge/counter) и значение/дельта.
 type Metric struct {
 	ID    string
 	MType string
@@ -19,6 +21,8 @@ type Metric struct {
 	Delta int64
 }
 
+// Agent собирает системные и рантайм-метрики и отправляет их на сервер.
+// Использует пул воркеров для конкурентной отправки.
 type Agent struct {
 	pollCount         int64
 	lastSentPollCount int64
@@ -34,6 +38,7 @@ type worker struct {
 	done    chan struct{}
 }
 
+// NewAgent создаёт новый Agent с указанным количеством воркеров (rateLimit).
 func NewAgent(rateLimit int) *Agent {
 	return &Agent{
 		pollCount:         0,
@@ -54,6 +59,8 @@ func (w *worker) run(processFunc func([]Metric)) {
 	}
 }
 
+// StartWorkers запускает пул воркеров, которые обрабатывают метрики через processFunc.
+
 func (a *Agent) StartWorkers(processFunc func([]Metric)) {
 	for i := 0; i < a.rateLimit; i++ {
 		w := &worker{
@@ -66,10 +73,12 @@ func (a *Agent) StartWorkers(processFunc func([]Metric)) {
 	}
 }
 
+// IncrementPollCount увеличивает счётчик опросов на 1.
 func (a *Agent) IncrementPollCount() {
 	atomic.AddInt64(&a.pollCount, 1)
 }
 
+// StopWorkers останавливает всех воркеров и закрывает канал метрик.
 func (a *Agent) StopWorkers() {
 	for _, w := range a.workers {
 		close(w.done)
@@ -77,14 +86,16 @@ func (a *Agent) StopWorkers() {
 	close(a.metricsChan)
 }
 
+// SendMetrics отправляет метрики во внутренний канал для обработки воркерами.
+// Безопасно вызывать из нескольких горутин.
 func (a *Agent) SendMetrics(metrics []Metric) {
 	a.metricsChan <- metrics
 }
 
+// GetPollCount возвращает текущее значение счётчика опросов.
 func (a *Agent) GetPollCount() int64 {
 	return atomic.LoadInt64(&a.pollCount)
 }
-
 func collectRuntimeMetrics() []Metric {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
@@ -124,7 +135,6 @@ func collectRuntimeMetrics() []Metric {
 	)
 	return metrics
 }
-
 func collectSystemMetrics() []Metric {
 	var metrics []Metric
 
@@ -146,6 +156,8 @@ func collectSystemMetrics() []Metric {
 	return metrics
 }
 
+// CollectRuntimeMetrics собирает runtime-метрики (memstats) и включает PollCount.
+// Перед сборкой увеличивает счётчик опросов.
 func (a *Agent) CollectRuntimeMetrics() []Metric {
 	a.IncrementPollCount()
 	metrics := collectRuntimeMetrics()
@@ -157,10 +169,13 @@ func (a *Agent) CollectRuntimeMetrics() []Metric {
 	return metrics
 }
 
+// CollectSystemMetrics собирает системные метрики (память, CPU) через gopsutil.
 func (a *Agent) CollectSystemMetrics() []Metric {
 	return collectSystemMetrics()
 }
 
+// PrepareMetricsForSend подготавливает метрики к отправке, корректируя дельту PollCount.
+// Возвращает копию метрик, где дельта PollCount установлена как разница с последней отправкой.
 func (a *Agent) PrepareMetricsForSend(metrics []Metric) []Metric {
 	delta := a.pollCount - a.lastSentPollCount
 	for i := range metrics {

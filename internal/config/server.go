@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+// ServerConfig содержит конфигурацию сервера.
+
 type ServerConfig struct {
 	Addr            string
 	StoreInterval   time.Duration
@@ -21,6 +23,9 @@ type ServerConfig struct {
 	MigrationsDir   string // путь к миграциям
 
 }
+
+// ParseServerConfig читает конфигурацию сервера из флагов командной строки и переменных окружения.
+// Приоритет: переменные окружения переопределяют флаги.
 
 func ParseServerConfig() (*ServerConfig, error) {
 	var flagRunAddr string

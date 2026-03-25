@@ -1,4 +1,3 @@
-// internal/repository/migrations.go
 package repository
 
 import (
@@ -9,6 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// RunMigrations применяет все ожидающие миграции из указанной директории.
 func RunMigrations(db *sql.DB, migrationsDir string) error {
 	// Перенаправляем логи goose в zap
 	goose.SetLogger(zap.NewStdLog(zap.L()))
