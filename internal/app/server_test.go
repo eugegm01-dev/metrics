@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/eugegm01-dev/metrics/internal/config"
 	"github.com/eugegm01-dev/metrics/internal/repository"
- "github.com/eugegm01-dev/metrics/internal/config"
 	"go.uber.org/zap"
 )
 
