@@ -22,10 +22,13 @@ func BenchmarkUpdateJSONHandler(b *testing.B) {
 	body, _ := json.Marshal(metric)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
+		b.StopTimer()
 		req := httptest.NewRequest("POST", "/update", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
+		b.StartTimer()
+
 		handler.ServeHTTP(w, req)
 	}
 }

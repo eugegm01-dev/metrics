@@ -1,6 +1,7 @@
 package audit
 
 import "sync"
+	"go.uber.org/zap"
 
 // Subject реализует паттерн «наблюдатель» для событий аудита.
 // Хранит список наблюдателей и уведомляет их при возникновении событий.
@@ -8,7 +9,11 @@ type Subject struct {
 	mu        sync.RWMutex
 	observers []Observer
 }
-
+// Observer определяет интерфейс наблюдателя за событиями аудита.
+type Observer interface {
+	Update(event *AuditEvent) error
+	Close() error
+}
 // NewSubject создаёт новый Subject.
 func NewSubject() *Subject {
 	return &Subject{
@@ -26,12 +31,15 @@ func (s *Subject) Attach(observer Observer) {
 // Notify асинхронно отправляет событие всем наблюдателям.
 func (s *Subject) Notify(event *AuditEvent) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	observers := make([]Observer, len(s.observers))
+	copy(observers, s.observers)
+	s.mu.RUnlock()
 
-	for _, observer := range s.observers {
-		// Асинхронная отправка, чтобы не блокировать основной поток
+	for _, observer := range observers {
 		go func(obs Observer) {
-			_ = obs.Update(event) // ошибки логируем внутри наблюдателей
+			if err := obs.Update(event); err != nil {
+				zap.L().Error("audit update failed", zap.Error(err))
+			}
 		}(observer)
 	}
 }
