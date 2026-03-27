@@ -18,14 +18,15 @@ const (
 	Retriable
 )
 
-// PostgresErrorClassifier классификатор ошибок PostgreSQL
+// PostgresErrorClassifier классифицирует ошибки PostgreSQL как повторяемые или нет.
 type PostgresErrorClassifier struct{}
 
+// NewPostgresErrorClassifier создаёт новый классификатор.
 func NewPostgresErrorClassifier() *PostgresErrorClassifier {
 	return &PostgresErrorClassifier{}
 }
 
-// Classify классифицирует ошибку и возвращает PGErrorClassification
+// Classify возвращает Retriable, если ошибка временная, иначе NonRetriable.
 func (c *PostgresErrorClassifier) Classify(err error) PGErrorClassification {
 	if err == nil {
 		return NonRetriable

@@ -9,14 +9,23 @@ import (
 	"time"
 )
 
+// ServerConfig содержит конфигурацию сервера.
+
 type ServerConfig struct {
 	Addr            string
 	StoreInterval   time.Duration
 	FileStoragePath string
 	Restore         bool
 	DatabaseDSN     string
-	Key             string // Добавляем поле для ключа
+	Key             string
+	AuditFile       string // путь к файлу аудита
+	AuditURL        string // URL для отправки аудита
+	MigrationsDir   string // путь к миграциям
+
 }
+
+// ParseServerConfig читает конфигурацию сервера из флагов командной строки и переменных окружения.
+// Приоритет: переменные окружения переопределяют флаги.
 
 func ParseServerConfig() (*ServerConfig, error) {
 	var flagRunAddr string
@@ -24,10 +33,16 @@ func ParseServerConfig() (*ServerConfig, error) {
 	var flagFileStoragePath string
 	var flagRestore bool
 	var flagDSN string
-	var flagKey string // Добавляем флаг для ключа
+	var flagKey string
+	var flagAuditFile string
+	var flagAuditURL string
+	var flagMigrationsDir string
 
 	flag.StringVar(&flagDSN, "d", "", "PostgreSQL DSN")
-	flag.StringVar(&flagKey, "k", "", "ключ для проверки подписи") // Добавляем флаг
+	flag.StringVar(&flagKey, "k", "", "ключ для проверки подписи")
+	flag.StringVar(&flagAuditFile, "audit-file", "", "путь к файлу аудита")
+	flag.StringVar(&flagAuditURL, "audit-url", "", "URL для отправки логов аудита")
+	flag.StringVar(&flagMigrationsDir, "migrations-dir", "migrations", "путь к директории миграций")
 
 	flag.StringVar(&flagRunAddr, "a", "localhost:8080", "адрес и порт для запуска сервера")
 	flag.IntVar(&flagStoreInterval, "i", 300, "интервал сохранения метрик на диск в секундах (0 - синхронная запись)")
@@ -43,6 +58,9 @@ func ParseServerConfig() (*ServerConfig, error) {
 		Restore:         flagRestore,
 		DatabaseDSN:     flagDSN,
 		Key:             flagKey,
+		AuditFile:       flagAuditFile,
+		AuditURL:        flagAuditURL,
+		MigrationsDir:   flagMigrationsDir,
 	}
 
 	// Приоритет: переменные окружения > флаги > дефолт
@@ -73,7 +91,12 @@ func ParseServerConfig() (*ServerConfig, error) {
 	if envFilePath, ok := os.LookupEnv("FILE_STORAGE_PATH"); ok {
 		cfg.FileStoragePath = envFilePath
 	}
-
+if envAuditFile, ok := os.LookupEnv("AUDIT_FILE"); ok && envAuditFile != "" {
+	cfg.AuditFile = envAuditFile
+}
+if envAuditURL, ok := os.LookupEnv("AUDIT_URL"); ok && envAuditURL != "" {
+	cfg.AuditURL = envAuditURL
+}
 	// RESTORE
 	if envRestore, ok := os.LookupEnv("RESTORE"); ok {
 		val, err := strconv.ParseBool(envRestore)

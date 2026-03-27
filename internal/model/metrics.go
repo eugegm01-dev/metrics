@@ -1,9 +1,18 @@
 package model
 
 const (
+	// Counter тип для метрик-счётчиков.
+
 	Counter = "counter"
-	Gauge   = "gauge"
+	// Gauge тип для метрик-значений.
+
+	Gauge = "gauge"
 )
+
+// Metrics представляет метрику в системе.
+// ID – имя метрики, MType – тип ("gauge" или "counter").
+// Delta используется для счётчиков, Value – для gauges.
+// Hash опционален для проверки целостности.
 
 type Metrics struct {
 	ID    string   `json:"id"`

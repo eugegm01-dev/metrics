@@ -8,7 +8,8 @@ import (
 	"strings"
 )
 
-// GzipMiddleware автоматически сжимает ответы и распаковывает запросы при необходимости
+// GzipMiddleware сжимает HTTP-ответы, если клиент поддерживает gzip.
+// Также распаковывает gzip-сжатые тела запросов при наличии заголовка Content-Encoding: gzip.
 func GzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Проверка поддержки gzip в Accept-Encoding

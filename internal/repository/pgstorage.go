@@ -3,8 +3,11 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
@@ -13,17 +16,30 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
+var migrationFiles embed.FS
+
+// PGStorage – реализация Storage с использованием PostgreSQL.
 type PGStorage struct {
 	db *sql.DB
 }
 
+// NewPGStorage создаёт новый PGStorage и применяет миграции.
 func NewPGStorage(db *sql.DB) (*PGStorage, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
 
-	// Goose теперь работает с директорией миграций
-	if err := goose.Up(db, "migrations"); err != nil {
+	// Определяем путь к миграциям
+	_, filename, _, _ := runtime.Caller(0)
+	currentDir := filepath.Dir(filename)
+	migrationsDir := filepath.Join(currentDir, "../../migrations")
+
+	goose.SetBaseFS(migrationFiles) // если используете embed
+	if err := goose.SetDialect("postgres"); err != nil {
+		return nil, fmt.Errorf("goose set dialect: %w", err)
+	}
+
+	if err := goose.Up(db, migrationsDir); err != nil {
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
@@ -108,6 +124,7 @@ func (s *PGStorage) executeInTransaction(ctx context.Context, fn func(tx *sql.Tx
 	})
 }
 
+// UpdateGauge обновляет gauge-метрику в БД.
 func (s *PGStorage) UpdateGauge(name string, value float64) {
 	ctx := context.Background()
 	s.executeWithRetry(ctx, func() error {
@@ -121,6 +138,7 @@ func (s *PGStorage) UpdateGauge(name string, value float64) {
 	})
 }
 
+// UpdateCounter обновляет counter-метрику в БД (инкремент).
 func (s *PGStorage) UpdateCounter(name string, value int64) {
 	ctx := context.Background()
 	s.executeWithRetry(ctx, func() error {
@@ -134,6 +152,7 @@ func (s *PGStorage) UpdateCounter(name string, value int64) {
 	})
 }
 
+// GetGauge возвращает gauge-значение из БД.
 func (s *PGStorage) GetGauge(name string) (float64, bool) {
 	var value float64
 	ctx := context.Background()
@@ -151,6 +170,7 @@ func (s *PGStorage) GetGauge(name string) (float64, bool) {
 	return value, true
 }
 
+// GetCounter возвращает counter-значение из БД.
 func (s *PGStorage) GetCounter(name string) (int64, bool) {
 	var value int64
 	ctx := context.Background()
@@ -168,6 +188,7 @@ func (s *PGStorage) GetCounter(name string) (int64, bool) {
 	return value, true
 }
 
+// GetAllMetrics возвращает строковое представление всех метрик из БД.
 func (s *PGStorage) GetAllMetrics() string {
 	var result string
 
@@ -223,6 +244,7 @@ func (s *PGStorage) GetAllMetrics() string {
 	return result
 }
 
+// UpdateBatch обновляет несколько метрик за одну транзакцию.
 func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
 	ctx := context.Background()
 	return s.executeInTransaction(ctx, func(tx *sql.Tx) error {
@@ -253,6 +275,7 @@ func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
 	})
 }
 
+// Close закрывает соединение с БД.
 func (s *PGStorage) Close() {
 	s.db.Close()
 }
