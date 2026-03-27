@@ -8,6 +8,7 @@ import (
 	"time"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
+	"go.uber.org/zap"
 )
 
 // FileStorage — обёртка над MemStorage с сохранением в файл
@@ -37,13 +38,15 @@ func NewFileStorage(filePath string, storeInterval time.Duration, restore bool) 
 		stopChan:      make(chan struct{}),
 		lastSaved:     time.Now(),
 	}
-
 	// Одноразовая загрузка при старте
 	if restore {
 		if err := storage.loadFromFile(); err != nil {
-			_ = err // игнорируем ошибку при загрузке
+			zap.L().Warn("Failed to load metrics from file",
+				zap.String("path", filePath),
+				zap.Error(err))
 		}
 	}
+
 	// Периодическое сохранение
 	if storeInterval > 0 {
 		go storage.periodicSave()

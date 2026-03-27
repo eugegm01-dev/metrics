@@ -2,6 +2,7 @@ package repository
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
@@ -49,16 +50,16 @@ func (s *MemStorage) GetCounter(name string) (int64, bool) {
 func (s *MemStorage) GetAllMetrics() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var result string
-	result += "Gauges:\n"
+	var sb strings.Builder
+	sb.WriteString("Gauges:\n")
 	for k, v := range s.Gauges {
-		result += fmt.Sprintf(" %s: %f\n", k, v)
+		fmt.Fprintf(&sb, " %s: %f\n", k, v)
 	}
-	result += "Counters:\n"
+	sb.WriteString("Counters:\n")
 	for k, v := range s.Counters {
-		result += fmt.Sprintf(" %s: %d\n", k, v)
+		fmt.Fprintf(&sb, " %s: %d\n", k, v)
 	}
-	return result
+	return sb.String()
 }
 
 func (s *MemStorage) UpdateBatch(metrics []models.Metrics) error {

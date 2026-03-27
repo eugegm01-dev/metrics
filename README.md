@@ -31,6 +31,15 @@ git fetch template && git checkout template/v2 .github
 
 Подробнее про локальный и автоматический запуск читайте в [README автотестов](https://github.com/Yandex-Practicum/go-autotests).
 
+## Профилирование памяти
+
+### Снятие профиля потребления памяти
+
+1. Запустите сервер:
+   ```bash
+   go run cmd/server/main.go -a localhost:8080
+   
+
 ## Структура проекта
 
 Приведённая в этом репозитории структура проекта является рекомендуемой, но не обязательной.
@@ -42,3 +51,4 @@ git fetch template && git checkout template/v2 .github
 - **Clean Architecture**
 - **Hexagonal Architecture**
 - **Layered Architecture**
+
