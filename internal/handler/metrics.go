@@ -8,9 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/eugegm01-dev/metrics/internal/audit"
 	models "github.com/eugegm01-dev/metrics/internal/model"
 	"github.com/eugegm01-dev/metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
@@ -62,7 +65,7 @@ func UpdateHandler(storage repository.Storage, key string) http.HandlerFunc {
 }
 
 // UpdatesHandler обрабатывает обновление множества метрик за один запрос
-func UpdatesHandler(storage repository.Storage, key string) http.HandlerFunc {
+func UpdatesHandler(storage repository.Storage, key string, auditSubject *audit.Subject) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -84,6 +87,20 @@ func UpdatesHandler(storage repository.Storage, key string) http.HandlerFunc {
 		if len(metrics) == 0 {
 			w.WriteHeader(http.StatusOK)
 			return
+		}
+		if auditSubject != nil {
+			// Собираем имена метрик
+			metricNames := make([]string, len(metrics))
+			for i, m := range metrics {
+				metricNames[i] = m.ID
+			}
+
+			// Получаем IP адрес
+			ipAddr := getRealIP(r)
+
+			// Создаём и отправляем событие аудита
+			event := audit.NewAuditEvent(metricNames, ipAddr)
+			auditSubject.Notify(event)
 		}
 
 		// Проверяем, поддерживает ли хранилище пакетное обновление
@@ -381,4 +398,17 @@ func IndexHTMLHandler(storage repository.Storage, key string) http.HandlerFunc {
 
 		w.Write([]byte(htmlContent))
 	}
+}
+func getRealIP(r *http.Request) string {
+	// Проверка заголовков прокси
+	for _, header := range []string{"X-Forwarded-For", "X-Real-IP"} {
+		if ip := r.Header.Get(header); ip != "" {
+			// X-Forwarded-For может содержать список IP
+			ips := strings.Split(ip, ",")
+			return strings.TrimSpace(ips[0])
+		}
+	}
+	// Fallback на RemoteAddr
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return ip
 }
