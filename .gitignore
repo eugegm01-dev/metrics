@@ -9,6 +9,7 @@ sender
 *.test
 *.out
 *.prof
+/profiles/*.pprof
 
 # Common build outputs from cmd
 cmd/*/main

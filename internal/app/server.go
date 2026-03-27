@@ -5,18 +5,20 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
-
+	"github.com/avast/retry-go/v4"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 
+	"github.com/eugegm01-dev/metrics/internal/audit"
 	"github.com/eugegm01-dev/metrics/internal/config"
 	"github.com/eugegm01-dev/metrics/internal/handler"
 	"github.com/eugegm01-dev/metrics/internal/middleware"
@@ -41,10 +43,10 @@ func RunServer() error {
 		zap.String("file_storage_path", cfg.FileStoragePath),
 		zap.Bool("restore", cfg.Restore),
 		zap.String("database_dsn", cfg.DatabaseDSN),
-		zap.String("key", cfg.Key), // Логируем наличие ключа
+		zap.String("key", cfg.Key),
 	)
 
-	// Инициализация БД
+	// 1️⃣ Инициализация БД
 	var db *sql.DB
 	if cfg.DatabaseDSN != "" {
 		db, err = initDB(cfg, logger)
@@ -54,17 +56,35 @@ func RunServer() error {
 		defer db.Close()
 	}
 
-	// Инициализация хранилища
+	// 2️⃣ Инициализация хранилища
 	storage, err := initStorage(cfg, db, logger)
 	if err != nil {
 		return fmt.Errorf("failed to create storage: %w", err)
 	}
 	defer storage.Close()
 
-	// Инициализация роутера с передачей ключа
-	r := initRouter(storage, logger, cfg.Key)
+	// 3️⃣ Инициализация аудита
+	var auditSubject *audit.Subject
+	if cfg.AuditFile != "" || cfg.AuditURL != "" {
+		auditSubject = audit.NewSubject()
+		if cfg.AuditFile != "" {
+			fileObs, err := audit.NewFileObserver(cfg.AuditFile)
+			if err != nil {
+				logger.Error("Failed to create file audit observer", zap.Error(err))
+			} else {
+				auditSubject.Attach(fileObs)
+			}
+		}
+		if cfg.AuditURL != "" {
+			httpObs := audit.NewHTTPObserver(cfg.AuditURL)
+			auditSubject.Attach(httpObs)
+		}
+	}
 
-	// Настройка сервера
+	// 4️⃣ Роутер
+	r := initRouter(storage, logger, cfg.Key, auditSubject)
+
+	// 5️⃣ Сервер
 	srv := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      r,
@@ -73,58 +93,60 @@ func RunServer() error {
 		IdleTimeout:  30 * time.Second,
 	}
 
-	return runServer(srv, logger)
+	// 6️⃣ Запуск
+	err = runServer(srv, logger)
+
+	// 7️⃣ Закрытие аудита ПОСЛЕ остановки сервера
+	if auditSubject != nil {
+		_ = auditSubject.Close()
+	}
+	return err
 }
 
 func initDB(cfg *config.ServerConfig, logger *zap.Logger) (*sql.DB, error) {
-	dsn := cfg.DatabaseDSN
-
-	// Обрезаем кавычки, которые могут быть в тестах
-	dsn = strings.Trim(dsn, "'\"`")
-
+	dsn := strings.Trim(cfg.DatabaseDSN, "'\"`")
 	if dsn == "" {
-		// Если DSN пустой, пропускаем подключение к БД
 		return nil, nil
 	}
-
-	// Если DSN не содержит схему, добавляем postgres://postgres@
 	if !strings.Contains(dsn, "://") {
-		// Тесты передают: postgres:5432/praktikum?sslmode=disable
-		// Добавляем пользователя postgres
 		dsn = "postgres://postgres@" + dsn
 	}
 
 	logger.Info("Connecting to database", zap.String("dsn", dsn))
 
-	db, err := sql.Open("pgx", dsn)
+	var db *sql.DB
+	var err error
+
+	// Используем retry-go
+	err = retry.Do(
+		func() error {
+			db, err = sql.Open("pgx", dsn)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			return db.PingContext(ctx)
+		},
+		retry.Attempts(3),
+		retry.DelayType(retry.BackOffDelay),
+		retry.Delay(1*time.Second),
+		retry.OnRetry(func(n uint, err error) {
+			logger.Warn("Database connection attempt failed",
+				zap.Uint("attempt", n+1),
+				zap.Error(err))
+		}),
+	)
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		if db != nil {
+			db.Close()
+		}
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Проверяем подключение с retry
-	const maxAttempts = 3
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err = db.PingContext(ctx)
-		cancel()
-
-		if err == nil {
-			logger.Info("Database connected successfully")
-			return db, nil
-		}
-
-		logger.Warn("Database ping attempt failed",
-			zap.Int("attempt", attempt),
-			zap.Error(err),
-		)
-
-		if attempt < maxAttempts {
-			time.Sleep(time.Duration(attempt) * time.Second)
-		}
-	}
-
-	db.Close()
-	return nil, fmt.Errorf("failed to connect to database after %d attempts: %w", maxAttempts, err)
+	logger.Info("Database connected successfully")
+	return db, nil
 }
 
 func initStorage(cfg *config.ServerConfig, db *sql.DB, logger *zap.Logger) (repository.Storage, error) {
@@ -133,34 +155,45 @@ func initStorage(cfg *config.ServerConfig, db *sql.DB, logger *zap.Logger) (repo
 		zap.Duration("store_interval", cfg.StoreInterval),
 		zap.Bool("restore", cfg.Restore),
 		zap.Bool("has_db", db != nil))
-
 	return repository.NewStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore, db)
 }
 
-func initRouter(storage repository.Storage, logger *zap.Logger, key string) *chi.Mux {
-	r := chi.NewRouter()
+func initRouter(storage repository.Storage, logger *zap.Logger, key string, auditSubject *audit.Subject) *chi.Mux {
+     r := chi.NewRouter()
+     r.Use(chiMiddleware.Recoverer)
+     r.Use(middleware.GzipMiddleware)
+     r.Use(middleware.LoggingMiddleware(logger))
+     r.Use(middleware.HashMiddleware(key))
 
-	r.Use(chiMiddleware.Recoverer)
-	r.Use(middleware.GzipMiddleware)
-	r.Use(middleware.LoggingMiddleware(logger))
-	r.Use(middleware.HashMiddleware(key)) // Добавляем middleware для проверки хеша
+
+    // pprof endpoints
+        r.HandleFunc("/debug/pprof/", pprof.Index)
+        r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+        r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+        r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+        r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+            r.Mount("/debug/pprof", http.HandlerFunc(pprof.Index))
+
+
+
 
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("pong"))
 	})
 
-	r.Get("/", handler.IndexHTMLHandler(storage, key))                           // Передаем ключ
-	r.Post("/update/{type}/{name}/{value}", handler.UpdateHandler(storage, key)) // Передаем ключ
-	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage, key))        // Передаем ключ
+	r.Get("/", handler.IndexHTMLHandler(storage, key))
+	r.Post("/update/{type}/{name}/{value}", handler.UpdateHandler(storage, key))
+	r.Get("/value/{type}/{name}", handler.GetMetricHandler(storage, key))
 	r.Post("/update", handler.UpdateJSONHandler(storage, key))
 	r.Post("/update/", handler.UpdateJSONHandler(storage, key))
 	r.Post("/value", handler.ValueJSONHandler(storage, key))
 	r.Post("/value/", handler.ValueJSONHandler(storage, key))
-	r.Post("/updates", handler.UpdatesHandler(storage, key))
-	r.Post("/updates/", handler.UpdatesHandler(storage, key))
 
-	// Endpoint для сохранения в файл (только для FileStorage)
+	// ✅ Только ОДНА регистрация /updates с auditSubject
+	r.Post("/updates", handler.UpdatesHandler(storage, key, auditSubject))
+	r.Post("/updates/", handler.UpdatesHandler(storage, key, auditSubject))
+
 	r.Post("/save", func(w http.ResponseWriter, r *http.Request) {
 		if fs, ok := storage.(interface{ SaveToFile() error }); ok {
 			if err := fs.SaveToFile(); err != nil {
@@ -184,15 +217,12 @@ func runServer(srv *http.Server, logger *zap.Logger) error {
 
 	go func() {
 		logger.Info("Starting HTTP server", zap.String("address", srv.Addr))
-
-		// Логируем маршруты через логгер
 		if err := chi.Walk(srv.Handler.(*chi.Mux), func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
 			logger.Debug("Registered route", zap.String("method", method), zap.String("route", route))
 			return nil
 		}); err != nil {
 			logger.Warn("Failed to walk routes", zap.Error(err))
 		}
-
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatal("Server failed to start", zap.Error(err))
 		}
@@ -203,7 +233,6 @@ func runServer(srv *http.Server, logger *zap.Logger) error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("server shutdown error: %w", err)
 	}

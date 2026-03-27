@@ -1,0 +1,50 @@
+package audit
+
+import "sync"
+
+// Subject реализует паттерн "Наблюдатель"
+type Subject struct {
+	mu        sync.RWMutex
+	observers []Observer
+}
+
+// NewSubject создаёт новый субъект
+func NewSubject() *Subject {
+	return &Subject{
+		observers: make([]Observer, 0),
+	}
+}
+
+// Attach добавляет наблюдателя
+func (s *Subject) Attach(observer Observer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.observers = append(s.observers, observer)
+}
+
+// Notify уведомляет всех наблюдателей о событии
+func (s *Subject) Notify(event *AuditEvent) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, observer := range s.observers {
+		// Асинхронная отправка, чтобы не блокировать основной поток
+		go func(obs Observer) {
+			_ = obs.Update(event) // ошибки логируем внутри наблюдателей
+		}(observer)
+	}
+}
+
+// Close закрывает всех наблюдателей
+func (s *Subject) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var lastErr error
+	for _, observer := range s.observers {
+		if err := observer.Close(); err != nil {
+			lastErr = err
+		}
+	}
+	return lastErr
+}
