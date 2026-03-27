@@ -1,0 +1,90 @@
+package repository
+
+import (
+	"fmt"
+	"sync"
+
+	models "github.com/eugegm01-dev/metrics/internal/model"
+)
+
+type MemStorage struct {
+	mu       sync.RWMutex
+	Gauges   map[string]float64
+	Counters map[string]int64
+}
+
+func NewMemStorage() *MemStorage {
+	return &MemStorage{
+		Gauges:   make(map[string]float64),
+		Counters: make(map[string]int64),
+	}
+}
+
+func (s *MemStorage) UpdateGauge(name string, value float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Gauges[name] = value
+}
+
+func (s *MemStorage) UpdateCounter(name string, value int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Counters[name] += value
+}
+
+func (s *MemStorage) GetGauge(name string) (float64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	val, ok := s.Gauges[name]
+	return val, ok
+}
+
+func (s *MemStorage) GetCounter(name string) (int64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	val, ok := s.Counters[name]
+	return val, ok
+}
+
+func (s *MemStorage) GetAllMetrics() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result string
+	result += "Gauges:\n"
+	for k, v := range s.Gauges {
+		result += fmt.Sprintf(" %s: %f\n", k, v)
+	}
+	result += "Counters:\n"
+	for k, v := range s.Counters {
+		result += fmt.Sprintf(" %s: %d\n", k, v)
+	}
+	return result
+}
+
+func (s *MemStorage) UpdateBatch(metrics []models.Metrics) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				return fmt.Errorf("value is required for gauge")
+			}
+			s.Gauges[metric.ID] = *metric.Value
+		case models.Counter:
+			if metric.Delta == nil {
+				return fmt.Errorf("delta is required for counter")
+			}
+			s.Counters[metric.ID] += *metric.Delta
+		default:
+			return fmt.Errorf("unknown metric type: %s", metric.MType)
+		}
+	}
+	return nil
+}
+
+// Пустые реализации интерфейса (FileStorage будет их переопределять)
+func (s *MemStorage) SaveToFile() error   { return nil }
+func (s *MemStorage) LoadFromFile() error { return nil }
+func (s *MemStorage) Close()              {}
