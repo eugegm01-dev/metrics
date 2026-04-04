@@ -1,3 +1,4 @@
+// Package app contains the main application logic for the agent and server.
 package app
 
 import (
@@ -11,12 +12,14 @@ import (
 	"github.com/eugegm01-dev/metrics/internal/model"
 )
 
+// RunAgent запускает агент с конфигурацией из флагов и переменных окружения.
+// Периодически собирает и отправляет метрики на сервер.
 func RunAgent() error {
 	logger, err := zap.NewDevelopment()
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	cfg, err := config.ParseAgentConfig()
 	if err != nil {

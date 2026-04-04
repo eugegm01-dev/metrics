@@ -1,7 +1,8 @@
 package main
 
 import (
-	"log"
+	"fmt"
+	"os"
 
 	"github.com/eugegm01-dev/metrics/internal/app"
 	"go.uber.org/zap"
@@ -10,11 +11,15 @@ import (
 func main() {
 	logger, err := zap.NewDevelopment()
 	if err != nil {
-		log.Fatal("Failed to create logger", err)
+		fatal(fmt.Errorf("failed to create logger: %w", err))
 	}
-	defer logger.Sync()
-
+	defer func() { _ = logger.Sync() }()
 	if err := app.RunAgent(); err != nil {
-		logger.Fatal("Agent error", zap.Error(err))
+		fatal(fmt.Errorf("agent error: %w", err))
 	}
+}
+
+func fatal(err error) {
+	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	os.Exit(1)
 }
