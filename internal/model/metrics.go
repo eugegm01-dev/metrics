@@ -1,3 +1,4 @@
+// Package model contains data structures, that describe the main entities of the application's subject area
 package model
 
 const (

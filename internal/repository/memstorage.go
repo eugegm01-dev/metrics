@@ -25,37 +25,39 @@ func NewMemStorage() *MemStorage {
 }
 
 // UpdateGauge сохраняет gauge-значение.
-func (s *MemStorage) UpdateGauge(name string, value float64) {
+func (s *MemStorage) UpdateGauge(name string, value float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Gauges[name] = value
+	return nil
 }
 
 // UpdateCounter увеличивает счётчик на переданную дельту.
-func (s *MemStorage) UpdateCounter(name string, value int64) {
+func (s *MemStorage) UpdateCounter(name string, value int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Counters[name] += value
+	return nil
 }
 
 // GetGauge возвращает gauge-значение и булев флаг существования.
-func (s *MemStorage) GetGauge(name string) (float64, bool) {
+func (s *MemStorage) GetGauge(name string) (float64, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	val, ok := s.Gauges[name]
-	return val, ok
+	return val, ok, nil
 }
 
 // GetCounter возвращает counter-значение и булев флаг существования.
-func (s *MemStorage) GetCounter(name string) (int64, bool) {
+func (s *MemStorage) GetCounter(name string) (int64, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	val, ok := s.Counters[name]
-	return val, ok
+	return val, ok, nil
 }
 
 // GetAllMetrics возвращает строковое представление всех метрик.
-func (s *MemStorage) GetAllMetrics() string {
+func (s *MemStorage) GetAllMetrics() (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var sb strings.Builder
@@ -67,7 +69,7 @@ func (s *MemStorage) GetAllMetrics() string {
 	for k, v := range s.Counters {
 		fmt.Fprintf(&sb, " %s: %d\n", k, v)
 	}
-	return sb.String()
+	return sb.String(), nil
 }
 
 // UpdateBatch обновляет несколько метрик за одну операцию.
@@ -97,4 +99,4 @@ func (s *MemStorage) UpdateBatch(metrics []models.Metrics) error {
 // Пустые реализации интерфейса (FileStorage будет их переопределять)
 func (s *MemStorage) SaveToFile() error   { return nil }
 func (s *MemStorage) LoadFromFile() error { return nil }
-func (s *MemStorage) Close()              {}
+func (s *MemStorage) Close() error        { return nil }

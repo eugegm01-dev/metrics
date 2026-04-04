@@ -1,3 +1,4 @@
+// Package config contains the server's and database's cofiguration
 package config
 
 import (
@@ -91,12 +92,12 @@ func ParseServerConfig() (*ServerConfig, error) {
 	if envFilePath, ok := os.LookupEnv("FILE_STORAGE_PATH"); ok {
 		cfg.FileStoragePath = envFilePath
 	}
-if envAuditFile, ok := os.LookupEnv("AUDIT_FILE"); ok && envAuditFile != "" {
-	cfg.AuditFile = envAuditFile
-}
-if envAuditURL, ok := os.LookupEnv("AUDIT_URL"); ok && envAuditURL != "" {
-	cfg.AuditURL = envAuditURL
-}
+	if envAuditFile, ok := os.LookupEnv("AUDIT_FILE"); ok && envAuditFile != "" {
+		cfg.AuditFile = envAuditFile
+	}
+	if envAuditURL, ok := os.LookupEnv("AUDIT_URL"); ok && envAuditURL != "" {
+		cfg.AuditURL = envAuditURL
+	}
 	// RESTORE
 	if envRestore, ok := os.LookupEnv("RESTORE"); ok {
 		val, err := strconv.ParseBool(envRestore)

@@ -1,3 +1,4 @@
+// Package repository contains database migration utilities.
 package repository
 
 import (

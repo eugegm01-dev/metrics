@@ -102,7 +102,7 @@ func (hw *hashResponseWriter) Close() error {
 
 	// Записываем заголовки и тело
 	hw.ResponseWriter.Header().Set("Content-Length", strconv.Itoa(len(hw.body)))
-	hw.ResponseWriter.Write(hw.body)
+	hw.Flush()
 
 	return nil
 }

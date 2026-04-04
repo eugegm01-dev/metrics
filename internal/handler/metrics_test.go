@@ -15,10 +15,9 @@ import (
 
 func TestGetMetricHandler(t *testing.T) {
 	storage := repository.NewMemStorage()
-	storage.UpdateCounter("test", 42)
+	_ = storage.UpdateCounter("test", 42) // игнорируем ошибку (в тесте она не возникнет)
 
 	r := chi.NewRouter()
-	// Передаем пустую строку как ключ (для тестов)
 	r.Get("/value/{type}/{name}", GetMetricHandler(storage, ""))
 
 	ts := httptest.NewServer(r)
@@ -29,7 +28,6 @@ func TestGetMetricHandler(t *testing.T) {
 		t.Fatalf("Failed to make request: %v", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected 200, got %d", resp.StatusCode)
 	}
@@ -39,7 +37,6 @@ func TestGetMetricHandler(t *testing.T) {
 		t.Fatalf("Failed to make request: %v", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("Expected 404, got %d", resp.StatusCode)
 	}
@@ -47,28 +44,26 @@ func TestGetMetricHandler(t *testing.T) {
 
 func TestUpdateJSONHandler(t *testing.T) {
 	storage := repository.NewMemStorage()
-
 	r := chi.NewRouter()
-	// Передаем пустую строку как ключ
 	r.Post("/update", UpdateJSONHandler(storage, ""))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
-	// Тест отправки gauge метрики
 	jsonData := `{"id":"testGauge","type":"gauge","value":42.5}`
 	resp, err := http.Post(ts.URL+"/update", "application/json", strings.NewReader(jsonData))
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected 200, got %d", resp.StatusCode)
 	}
 
-	// Проверяем, что метрика сохранилась
-	val, exists := storage.GetGauge("testGauge")
+	val, exists, err := storage.GetGauge("testGauge")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !exists {
 		t.Error("Metric was not saved")
 	}
@@ -79,24 +74,21 @@ func TestUpdateJSONHandler(t *testing.T) {
 
 func TestValueJSONHandler(t *testing.T) {
 	storage := repository.NewMemStorage()
-	storage.UpdateGauge("testGauge", 42.5)
-	storage.UpdateCounter("testCounter", 100)
+	_ = storage.UpdateGauge("testGauge", 42.5)
+	_ = storage.UpdateCounter("testCounter", 100)
 
 	r := chi.NewRouter()
-	// Передаем пустую строку как ключ
 	r.Post("/value", ValueJSONHandler(storage, ""))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
-	// Тест получения gauge метрики
 	jsonData := `{"id":"testGauge","type":"gauge"}`
 	resp, err := http.Post(ts.URL+"/value", "application/json", strings.NewReader(jsonData))
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected 200, got %d", resp.StatusCode)
 	}
@@ -106,16 +98,15 @@ func TestValueJSONHandler(t *testing.T) {
 	if err := dec.Decode(&result); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
-
 	if *result.Value != 42.5 {
 		t.Errorf("Expected 42.5, got %f", *result.Value)
 	}
 }
+
 func TestUpdatesHandler(t *testing.T) {
 	storage := repository.NewMemStorage()
 	handler := UpdatesHandler(storage, "", nil)
 
-	// создаём запрос с батчем
 	metrics := []models.Metrics{
 		{ID: "g1", MType: models.Gauge, Value: func() *float64 { v := 1.1; return &v }()},
 		{ID: "c1", MType: models.Counter, Delta: func() *int64 { v := int64(5); return &v }()},
@@ -130,16 +121,25 @@ func TestUpdatesHandler(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected 200, got %d", w.Code)
 	}
-	if val, ok := storage.GetGauge("g1"); !ok || val != 1.1 {
+	val, ok, err := storage.GetGauge("g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || val != 1.1 {
 		t.Errorf("Gauge not updated: %v, %v", val, ok)
 	}
-	if val, ok := storage.GetCounter("c1"); !ok || val != 5 {
-		t.Errorf("Counter not updated: %v, %v", val, ok)
+	valC, okC, err := storage.GetCounter("c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !okC || valC != 5 {
+		t.Errorf("Counter not updated: %v, %v", valC, okC)
 	}
 }
+
 func TestIndexHTMLHandler(t *testing.T) {
 	storage := repository.NewMemStorage()
-	storage.UpdateGauge("test", 1.23)
+	_ = storage.UpdateGauge("test", 1.23)
 	handler := IndexHTMLHandler(storage, "")
 
 	req := httptest.NewRequest("GET", "/", nil)

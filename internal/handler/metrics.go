@@ -1,3 +1,4 @@
+// Package handler contains HTTP request handlers for the metrics server.
 package handler
 
 import (
@@ -185,27 +186,37 @@ func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc 
 				http.Error(w, "Value is required for gauge", http.StatusBadRequest)
 				return
 			}
-			storage.UpdateGauge(metric.ID, *metric.Value)
+			if err := storage.UpdateGauge(metric.ID, *metric.Value); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		case models.Counter:
 			if metric.Delta == nil {
 				http.Error(w, "Delta is required for counter", http.StatusBadRequest)
 				return
 			}
-			storage.UpdateCounter(metric.ID, *metric.Delta)
-		default:
-			http.Error(w, "Invalid metric type", http.StatusBadRequest)
-			return
+			if err := storage.UpdateCounter(metric.ID, *metric.Delta); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
-
 		var response models.Metrics
 		response.ID = metric.ID
 		response.MType = metric.MType
 		switch metric.MType {
 		case models.Gauge:
-			val, _ := storage.GetGauge(metric.ID)
+			val, _, err := storage.GetGauge(metric.ID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			response.Value = &val
 		case models.Counter:
-			val, _ := storage.GetCounter(metric.ID)
+			val, _, err := storage.GetCounter(metric.ID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			response.Delta = &val
 		}
 
@@ -252,7 +263,11 @@ func GetMetricHandler(storage repository.Storage, key string) http.HandlerFunc {
 
 		switch metricType {
 		case "gauge":
-			value, exists := storage.GetGauge(metricName)
+			value, exists, err := storage.GetGauge(metricName)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			if !exists {
 				http.Error(w, "Metric not found", http.StatusNotFound)
 				return
@@ -262,7 +277,11 @@ func GetMetricHandler(storage repository.Storage, key string) http.HandlerFunc {
 			fmt.Fprintf(w, "%v", value)
 
 		case "counter":
-			value, exists := storage.GetCounter(metricName)
+			value, exists, err := storage.GetCounter(metricName)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			if !exists {
 				http.Error(w, "Metric not found", http.StatusNotFound)
 				return
@@ -307,7 +326,11 @@ func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 
 		switch metric.MType {
 		case models.Gauge:
-			value, exists := storage.GetGauge(metric.ID)
+			value, exists, err := storage.GetGauge(metric.ID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			if !exists {
 				http.Error(w, "Metric not found", http.StatusNotFound)
 				return
@@ -315,7 +338,11 @@ func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 			response.Value = &value
 
 		case models.Counter:
-			value, exists := storage.GetCounter(metric.ID)
+			value, exists, err := storage.GetCounter(metric.ID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			if !exists {
 				http.Error(w, "Metric not found", http.StatusNotFound)
 				return
@@ -359,8 +386,11 @@ func IndexHTMLHandler(storage repository.Storage, key string) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 
-		metricsText := storage.GetAllMetrics()
-
+		metricsText, err := storage.GetAllMetrics()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		htmlContent := `
 <!DOCTYPE html>
 <html>

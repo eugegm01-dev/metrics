@@ -9,48 +9,67 @@ import (
 
 func TestMemStorage_UpdateGauge(t *testing.T) {
 	s := NewMemStorage()
-	s.UpdateGauge("test", 42.5)
-	if val, ok := s.GetGauge("test"); !ok || val != 42.5 {
+	_ = s.UpdateGauge("test", 42.5)
+	val, ok, err := s.GetGauge("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || val != 42.5 {
 		t.Errorf("GetGauge() = %v, %v; want 42.5, true", val, ok)
 	}
 }
 
 func TestMemStorage_UpdateCounter(t *testing.T) {
 	s := NewMemStorage()
-	s.UpdateCounter("test", 10)
-	s.UpdateCounter("test", 5)
-	if val, ok := s.GetCounter("test"); !ok || val != 15 {
+	_ = s.UpdateCounter("test", 10)
+	_ = s.UpdateCounter("test", 5)
+	val, ok, err := s.GetCounter("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || val != 15 {
 		t.Errorf("GetCounter() = %v, %v; want 15, true", val, ok)
 	}
 }
 
 func TestMemStorage_GetGauge_NotFound(t *testing.T) {
 	s := NewMemStorage()
-	if val, ok := s.GetGauge("missing"); ok || val != 0 {
+	val, ok, err := s.GetGauge("missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok || val != 0 {
 		t.Errorf("GetGauge() = %v, %v; want 0, false", val, ok)
 	}
 }
 
 func TestMemStorage_GetCounter_NotFound(t *testing.T) {
 	s := NewMemStorage()
-	if val, ok := s.GetCounter("missing"); ok || val != 0 {
+	val, ok, err := s.GetCounter("missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok || val != 0 {
 		t.Errorf("GetCounter() = %v, %v; want 0, false", val, ok)
 	}
 }
 
 func TestMemStorage_GetAllMetrics(t *testing.T) {
 	s := NewMemStorage()
-	s.UpdateGauge("g1", 1.1)
-	s.UpdateGauge("g2", 2.2)
-	s.UpdateCounter("c1", 10)
-	output := s.GetAllMetrics()
-	// Проверяем, что вывод содержит все ожидаемые строки
+	_ = s.UpdateGauge("g1", 1.1)
+	_ = s.UpdateGauge("g2", 2.2)
+	_ = s.UpdateCounter("c1", 10)
+	output, err := s.GetAllMetrics()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(output, "g1: 1.100000") ||
 		!strings.Contains(output, "g2: 2.200000") ||
 		!strings.Contains(output, "c1: 10") {
 		t.Errorf("GetAllMetrics() output missing expected entries: %s", output)
 	}
 }
+
 func TestMemStorage_UpdateBatch(t *testing.T) {
 	s := NewMemStorage()
 	gVal := 3.14
@@ -63,11 +82,19 @@ func TestMemStorage_UpdateBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateBatch failed: %v", err)
 	}
-	if val, ok := s.GetGauge("g1"); !ok || val != 3.14 {
+	val, ok, err := s.GetGauge("g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || val != 3.14 {
 		t.Errorf("GetGauge('g1') = %v, %v; want 3.14, true", val, ok)
 	}
-	if val, ok := s.GetCounter("c1"); !ok || val != 100 {
-		t.Errorf("GetCounter('c1') = %v, %v; want 100, true", val, ok)
+	valC, okC, err := s.GetCounter("c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !okC || valC != 100 {
+		t.Errorf("GetCounter('c1') = %v, %v; want 100, true", valC, okC)
 	}
 }
 

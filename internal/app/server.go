@@ -1,3 +1,4 @@
+// Package app contains the main application logic for the agent and server.
 package app
 
 import (
@@ -32,7 +33,7 @@ func RunServer() error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	cfg, err := config.ParseServerConfig()
 	if err != nil {

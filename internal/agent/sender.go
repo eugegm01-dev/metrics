@@ -108,7 +108,7 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) e
 	if err != nil {
 		return fmt.Errorf("failed to send request after retries: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("server returned status: %d", resp.StatusCode)
@@ -159,7 +159,7 @@ func SendMetrics(serverAddr string, metrics []models.Metrics, key string) error 
 		if err != nil {
 			return fmt.Errorf("failed to send metric %s after retries: %w", metric.ID, err)
 		}
-		resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("server returned status %d for metric %s", resp.StatusCode, metric.ID)

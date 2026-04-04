@@ -1,3 +1,4 @@
+// Package audit is checking
 package audit
 
 import (
@@ -12,11 +13,13 @@ type Subject struct {
 	mu        sync.RWMutex
 	observers []Observer
 }
+
 // Observer определяет интерфейс наблюдателя за событиями аудита.
 type Observer interface {
 	Update(event *AuditEvent) error
 	Close() error
 }
+
 // NewSubject создаёт новый Subject.
 func NewSubject() *Subject {
 	return &Subject{

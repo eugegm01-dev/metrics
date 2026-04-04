@@ -71,7 +71,7 @@ func (s *FileStorage) loadFromFile() error {
 		}
 		return fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var metrics []models.Metrics
 	if err := json.NewDecoder(file).Decode(&metrics); err != nil {
@@ -119,14 +119,14 @@ func (s *FileStorage) saveToFile() error {
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", " ")
 	if err := enc.Encode(metrics); err != nil {
 		return fmt.Errorf("encode metrics: %w", err)
 	}
-	f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := os.Rename(tempFile, s.filePath); err != nil {
 		return fmt.Errorf("rename temp file: %w", err)
@@ -165,11 +165,6 @@ func (s *FileStorage) SaveToFile() error {
 	return s.saveToFile()
 }
 
-// Close останавливает периодическое сохранение и выполняет финальную запись.
-func (s *FileStorage) Close() {
-	close(s.stopChan)
-}
-
 // UpdateBatch обновляет несколько метрик за одну операцию.
 func (s *FileStorage) UpdateBatch(metrics []models.Metrics) error {
 	// Используем метод MemStorage
@@ -204,4 +199,28 @@ func (s *FileStorage) GetAllMetricsForSave() []models.Metrics {
 		})
 	}
 	return metrics
+}
+func (s *FileStorage) UpdateGauge(name string, value float64) error {
+	return s.MemStorage.UpdateGauge(name, value)
+}
+
+func (s *FileStorage) UpdateCounter(name string, value int64) error {
+	return s.MemStorage.UpdateCounter(name, value)
+}
+
+func (s *FileStorage) GetGauge(name string) (float64, bool, error) {
+	return s.MemStorage.GetGauge(name)
+}
+
+func (s *FileStorage) GetCounter(name string) (int64, bool, error) {
+	return s.MemStorage.GetCounter(name)
+}
+
+func (s *FileStorage) GetAllMetrics() (string, error) {
+	return s.MemStorage.GetAllMetrics()
+}
+
+func (s *FileStorage) Close() error {
+	close(s.stopChan)
+	return nil
 }

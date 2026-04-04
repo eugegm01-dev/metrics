@@ -1,4 +1,4 @@
-// internal/middleware/gzip.go
+// Package middleware provides HTTP middleware for compression, logging, and hashing.
 package middleware
 
 import (
@@ -26,12 +26,12 @@ func GzipMiddleware(next http.Handler) http.Handler {
 				return
 			}
 			r.Body = gzReader
-			defer gzReader.Close()
+			defer func() { _ = gzReader.Close() }() // исправлено: gzReader, не gzWriter
 		}
 
 		// Обертка для ответа с сжатием
 		gzWriter := gzip.NewWriter(w)
-		defer gzWriter.Close()
+		defer func() { _ = gzWriter.Close() }()
 
 		// Установка заголовка Content-Encoding
 		w.Header().Set("Content-Encoding", "gzip")
