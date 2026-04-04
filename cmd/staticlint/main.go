@@ -39,21 +39,50 @@ import (
 )
 
 func main() {
-	// 1. Стандартные анализаторы
-stdAnalyzers = append(stdAnalyzers,
+	// 1. Standard analyzers
+	stdAnalyzers := []*analysis.Analyzer{
+		asmdecl.Analyzer, assign.Analyzer, atomic.Analyzer, bools.Analyzer,
+		buildtag.Analyzer, cgocall.Analyzer, composite.Analyzer, copylock.Analyzer,
+		errorsas.Analyzer, framepointer.Analyzer, httpresponse.Analyzer, ifaceassert.Analyzer,
+		loopclosure.Analyzer, lostcancel.Analyzer, nilfunc.Analyzer, printf.Analyzer,
+		shift.Analyzer, sortslice.Analyzer, stdmethods.Analyzer, stringintconv.Analyzer,
+		structtag.Analyzer, testinggoroutine.Analyzer, tests.Analyzer, timeformat.Analyzer,
+		unmarshal.Analyzer, unreachable.Analyzer, unsafeptr.Analyzer, unusedresult.Analyzer,
+	}
 
-    asmdecl.Analyzer, assign.Analyzer, atomic.Analyzer, bools.Analyzer,
+	// 2. All SA class analyzers from staticcheck
+	var saAnalyzers []*analysis.Analyzer
+	for _, a := range staticcheck.Analyzers {
+		if len(a.Analyzer.Name) >= 2 && a.Analyzer.Name[:2] == "SA" {
+			saAnalyzers = append(saAnalyzers, a.Analyzer)
+		}
+	}
 
-    buildtag.Analyzer, cgocall.Analyzer, composite.Analyzer, copylock.Analyzer,
+	// 3. One ST class analyzer (ST1000 – package comment)
+	var stAnalyzers []*analysis.Analyzer
+	for _, a := range stylecheck.Analyzers {
+		if a.Analyzer.Name == "ST1000" {
+			stAnalyzers = append(stAnalyzers, a.Analyzer)
+			break
+		}
+	}
 
-    errorsas.Analyzer, framepointer.Analyzer, httpresponse.Analyzer, ifaceassert.Analyzer,
+	// 4. Public analyzers (bodyclose, errcheck)
+	publicAnalyzers := []*analysis.Analyzer{
+		bodyclose.Analyzer,
+		errcheck.Analyzer,
+	}
 
-    loopclosure.Analyzer, lostcancel.Analyzer, nilfunc.Analyzer, printf.Analyzer,
+	// 5. Custom analyzer (exitcheck)
+	customAnalyzers := []*analysis.Analyzer{
+		ExitCheckAnalyzer,
+	}
 
-    shift.Analyzer, sortslice.Analyzer, stdmethods.Analyzer, stringintconv.Analyzer,
+	// Combine all
+	allAnalyzers := append(stdAnalyzers, saAnalyzers...)
+	allAnalyzers = append(allAnalyzers, stAnalyzers...)
+	allAnalyzers = append(allAnalyzers, publicAnalyzers...)
+	allAnalyzers = append(allAnalyzers, customAnalyzers...)
 
-    structtag.Analyzer, testinggoroutine.Analyzer, tests.Analyzer, timeformat.Analyzer,
-
-    unmarshal.Analyzer, unreachable.Analyzer, unsafeptr.Analyzer, unusedresult.Analyzer,
-
-)
+	multichecker.Main(allAnalyzers...)
+}
