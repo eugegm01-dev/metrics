@@ -1,3 +1,4 @@
+// Package handler contains HTTP request handlers for the metrics server.
 package handler
 
 import (
@@ -8,15 +9,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/eugegm01-dev/metrics/internal/audit"
 	models "github.com/eugegm01-dev/metrics/internal/model"
 	"github.com/eugegm01-dev/metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
 )
 
-// UpdateHandler обрабатывает обновление метрики через URL параметры
+// UpdateHandler обрабатывает устаревший URL-путь обновления одной метрики (gauge/counter).
+// Ожидает POST /update/{type}/{name}/{value}.
+
 func UpdateHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -61,8 +67,10 @@ func UpdateHandler(storage repository.Storage, key string) http.HandlerFunc {
 	}
 }
 
-// UpdatesHandler обрабатывает обновление множества метрик за один запрос
-func UpdatesHandler(storage repository.Storage, key string) http.HandlerFunc {
+// UpdatesHandler обрабатывает пакетное обновление метрик через POST /updates.
+// Принимает JSON-массив Metrics и обновляет хранилище за одну операцию.
+// Если передан auditSubject, событие логируется.
+func UpdatesHandler(storage repository.Storage, key string, auditSubject *audit.Subject) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -84,6 +92,20 @@ func UpdatesHandler(storage repository.Storage, key string) http.HandlerFunc {
 		if len(metrics) == 0 {
 			w.WriteHeader(http.StatusOK)
 			return
+		}
+		if auditSubject != nil {
+			// Собираем имена метрик
+			metricNames := make([]string, len(metrics))
+			for i, m := range metrics {
+				metricNames[i] = m.ID
+			}
+
+			// Получаем IP адрес
+			ipAddr := getRealIP(r)
+
+			// Создаём и отправляем событие аудита
+			event := audit.NewAuditEvent(metricNames, ipAddr)
+			auditSubject.Notify(event)
 		}
 
 		// Проверяем, поддерживает ли хранилище пакетное обновление
@@ -132,11 +154,11 @@ func UpdatesHandler(storage repository.Storage, key string) http.HandlerFunc {
 	}
 }
 
-// UpdateJSONHandler обрабатывает обновление метрики через JSON
+// UpdateJSONHandler обрабатывает обновление одной метрики через JSON-полезную нагрузку (POST /update).
+// Ожидает объект JSON с полями id, type и value/delta.
+// Возвращает обновлённую метрику в JSON с заголовком хеша, если передан ключ.
 func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Проверка метода удалена — chi/Post уже гарантирует POST
-
 		if r.Header.Get("Content-Type") != "application/json" {
 			http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
 			return
@@ -153,47 +175,51 @@ func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc 
 			http.Error(w, "Metric name (id) is required", http.StatusBadRequest)
 			return
 		}
-
-		// Исправлено: models вместо model
 		if metric.MType != models.Gauge && metric.MType != models.Counter {
 			http.Error(w, "Invalid metric type. Must be 'gauge' or 'counter'", http.StatusBadRequest)
 			return
 		}
 
 		switch metric.MType {
-		case models.Gauge: // Исправлено
+		case models.Gauge:
 			if metric.Value == nil {
 				http.Error(w, "Value is required for gauge", http.StatusBadRequest)
 				return
 			}
-			storage.UpdateGauge(metric.ID, *metric.Value)
-
-		case models.Counter: // Исправлено
+			if err := storage.UpdateGauge(metric.ID, *metric.Value); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		case models.Counter:
 			if metric.Delta == nil {
 				http.Error(w, "Delta is required for counter", http.StatusBadRequest)
 				return
 			}
-			storage.UpdateCounter(metric.ID, *metric.Delta)
-
-		default:
-			http.Error(w, "Invalid metric type", http.StatusBadRequest)
-			return
+			if err := storage.UpdateCounter(metric.ID, *metric.Delta); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
-
 		var response models.Metrics
 		response.ID = metric.ID
 		response.MType = metric.MType
-
 		switch metric.MType {
-		case models.Gauge: // Исправлено
-			val, _ := storage.GetGauge(metric.ID)
+		case models.Gauge:
+			val, _, err := storage.GetGauge(metric.ID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			response.Value = &val
-		case models.Counter: // Исправлено
-			val, _ := storage.GetCounter(metric.ID)
+		case models.Counter:
+			val, _, err := storage.GetCounter(metric.ID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			response.Delta = &val
 		}
 
-		// Кодируем ответ
 		var buf bytes.Buffer
 		enc := json.NewEncoder(&buf)
 		if err := enc.Encode(response); err != nil {
@@ -201,13 +227,11 @@ func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc 
 			return
 		}
 
-		// Вычисляем хеш, если ключ задан
 		if key != "" {
 			hash := computeHash(buf.Bytes(), key)
 			w.Header().Set("HashSHA256", hash)
 		}
 
-		// Устанавливаем заголовки и пишем ответ
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(buf.Bytes())
@@ -225,6 +249,8 @@ func computeHash(data []byte, key string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// GetMetricHandler возвращает значение метрики в виде обычного текста для заданных типа и имени (GET /value/{type}/{name}).
+
 func GetMetricHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -237,7 +263,11 @@ func GetMetricHandler(storage repository.Storage, key string) http.HandlerFunc {
 
 		switch metricType {
 		case "gauge":
-			value, exists := storage.GetGauge(metricName)
+			value, exists, err := storage.GetGauge(metricName)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			if !exists {
 				http.Error(w, "Metric not found", http.StatusNotFound)
 				return
@@ -247,7 +277,11 @@ func GetMetricHandler(storage repository.Storage, key string) http.HandlerFunc {
 			fmt.Fprintf(w, "%v", value)
 
 		case "counter":
-			value, exists := storage.GetCounter(metricName)
+			value, exists, err := storage.GetCounter(metricName)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			if !exists {
 				http.Error(w, "Metric not found", http.StatusNotFound)
 				return
@@ -263,7 +297,8 @@ func GetMetricHandler(storage repository.Storage, key string) http.HandlerFunc {
 	}
 }
 
-// ValueJSONHandler возвращает значение метрики в формате JSON
+// ValueJSONHandler возвращает значение метрики в формате JSON (POST /value).
+// Ожидает объект JSON с полями id и type, в ответе возвращает значение.
 func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Проверка метода удалена — chi/Post уже гарантирует POST
@@ -291,7 +326,11 @@ func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 
 		switch metric.MType {
 		case models.Gauge:
-			value, exists := storage.GetGauge(metric.ID)
+			value, exists, err := storage.GetGauge(metric.ID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			if !exists {
 				http.Error(w, "Metric not found", http.StatusNotFound)
 				return
@@ -299,7 +338,11 @@ func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 			response.Value = &value
 
 		case models.Counter:
-			value, exists := storage.GetCounter(metric.ID)
+			value, exists, err := storage.GetCounter(metric.ID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			if !exists {
 				http.Error(w, "Metric not found", http.StatusNotFound)
 				return
@@ -331,6 +374,8 @@ func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
 	}
 }
 
+// IndexHTMLHandler возвращает HTML-страницу со списком всех метрик (GET /).
+
 func IndexHTMLHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/" {
@@ -341,8 +386,11 @@ func IndexHTMLHandler(storage repository.Storage, key string) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 
-		metricsText := storage.GetAllMetrics()
-
+		metricsText, err := storage.GetAllMetrics()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		htmlContent := `
 <!DOCTYPE html>
 <html>
@@ -381,4 +429,17 @@ func IndexHTMLHandler(storage repository.Storage, key string) http.HandlerFunc {
 
 		w.Write([]byte(htmlContent))
 	}
+}
+func getRealIP(r *http.Request) string {
+	// Проверка заголовков прокси
+	for _, header := range []string{"X-Forwarded-For", "X-Real-IP"} {
+		if ip := r.Header.Get(header); ip != "" {
+			// X-Forwarded-For может содержать список IP
+			ips := strings.Split(ip, ",")
+			return strings.TrimSpace(ips[0])
+		}
+	}
+	// Fallback на RemoteAddr
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return ip
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// AgentConfig содержит конфигурацию агента.
 type AgentConfig struct {
 	ServerAddr     string
 	PollInterval   time.Duration
@@ -14,6 +15,9 @@ type AgentConfig struct {
 	RateLimit      int
 	Key            string // Добавляем поле для ключа
 }
+
+// ParseAgentConfig читает конфигурацию агента из флагов командной строки и переменных окружения.
+// Приоритет: переменные окружения переопределяют флаги.
 
 func ParseAgentConfig() (*AgentConfig, error) {
 	var flagServerAddr string
