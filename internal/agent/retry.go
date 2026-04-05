@@ -7,14 +7,15 @@ import (
 	"time"
 )
 
-// RetryableErrorClassifier классифицирует ошибки как retryable/non-retryable
+// RetryableErrorClassifier определяет, является ли ошибка повторяемой (временной).
 type RetryableErrorClassifier struct{}
 
+// NewRetryableErrorClassifier создаёт новый классификатор.
 func NewRetryableErrorClassifier() *RetryableErrorClassifier {
 	return &RetryableErrorClassifier{}
 }
 
-// IsRetryableError проверяет, является ли ошибка retryable
+// IsRetryableError возвращает true, если ошибка считается повторяемой (таймауты, отказ соединения, EOF).
 func (c *RetryableErrorClassifier) IsRetryableError(err error) bool {
 	if err == nil {
 		return false
@@ -39,7 +40,8 @@ func (c *RetryableErrorClassifier) IsRetryableError(err error) bool {
 	return false
 }
 
-// Retry выполняет операцию с повторными попытками с поддержкой контекста
+// Retry выполняет операцию с повторами до maxRetries раз, используя заданные задержки между попытками.
+// Учитывает контекст для отмены. Если операция вернула неповторяемую ошибку, повтор останавливается.
 func Retry(ctx context.Context, operation func() error, maxRetries int, delays ...time.Duration) error {
 	var lastErr error
 
