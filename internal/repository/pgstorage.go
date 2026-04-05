@@ -3,8 +3,11 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
@@ -13,17 +16,30 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
+var migrationFiles embed.FS
+
+// PGStorage – реализация Storage с использованием PostgreSQL.
 type PGStorage struct {
 	db *sql.DB
 }
 
+// NewPGStorage создаёт новый PGStorage и применяет миграции.
 func NewPGStorage(db *sql.DB) (*PGStorage, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
 
-	// Goose теперь работает с директорией миграций
-	if err := goose.Up(db, "migrations"); err != nil {
+	// Определяем путь к миграциям
+	_, filename, _, _ := runtime.Caller(0)
+	currentDir := filepath.Dir(filename)
+	migrationsDir := filepath.Join(currentDir, "../../migrations")
+
+	goose.SetBaseFS(migrationFiles) // если используете embed
+	if err := goose.SetDialect("postgres"); err != nil {
+		return nil, fmt.Errorf("goose set dialect: %w", err)
+	}
+
+	if err := goose.Up(db, migrationsDir); err != nil {
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
@@ -94,13 +110,13 @@ func (s *PGStorage) executeInTransaction(ctx context.Context, fn func(tx *sql.Tx
 
 		defer func() {
 			if p := recover(); p != nil {
-				tx.Rollback()
+				_ = tx.Rollback()
 				panic(p)
 			}
 		}()
 
 		if err := fn(tx); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return err
 		}
 
@@ -108,69 +124,69 @@ func (s *PGStorage) executeInTransaction(ctx context.Context, fn func(tx *sql.Tx
 	})
 }
 
-func (s *PGStorage) UpdateGauge(name string, value float64) {
+// UpdateGauge обновляет gauge-метрику в БД.
+func (s *PGStorage) UpdateGauge(name string, value float64) error {
 	ctx := context.Background()
-	s.executeWithRetry(ctx, func() error {
+	return s.executeWithRetry(ctx, func() error {
 		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO gauges (name, value)
-			VALUES ($1, $2)
-			ON CONFLICT (name)
-			DO UPDATE SET value = $2
-		`, name, value)
+            INSERT INTO gauges (name, value)
+            VALUES ($1, $2)
+            ON CONFLICT (name) DO UPDATE SET value = $2
+        `, name, value)
 		return err
 	})
 }
 
-func (s *PGStorage) UpdateCounter(name string, value int64) {
+// UpdateCounter обновляет counter-метрику в БД (инкремент).
+func (s *PGStorage) UpdateCounter(name string, value int64) error {
 	ctx := context.Background()
-	s.executeWithRetry(ctx, func() error {
+	return s.executeWithRetry(ctx, func() error {
 		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO counters (name, value)
-			VALUES ($1, $2)
-			ON CONFLICT (name)
-			DO UPDATE SET value = counters.value + $2
-		`, name, value)
+            INSERT INTO counters (name, value)
+            VALUES ($1, $2)
+            ON CONFLICT (name) DO UPDATE SET value = counters.value + $2
+        `, name, value)
 		return err
 	})
 }
 
-func (s *PGStorage) GetGauge(name string) (float64, bool) {
+// GetGauge возвращает gauge-значение из БД.
+func (s *PGStorage) GetGauge(name string) (float64, bool, error) {
 	var value float64
 	ctx := context.Background()
 	err := s.executeWithRetry(ctx, func() error {
 		return s.db.QueryRowContext(ctx,
 			"SELECT value FROM gauges WHERE name = $1", name).Scan(&value)
 	})
-
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return 0, false
+			return 0, false, nil
 		}
-		return 0, false
+		return 0, false, err
 	}
-	return value, true
+	return value, true, nil
 }
 
-func (s *PGStorage) GetCounter(name string) (int64, bool) {
+// GetCounter возвращает counter-значение из БД.
+func (s *PGStorage) GetCounter(name string) (int64, bool, error) {
 	var value int64
 	ctx := context.Background()
 	err := s.executeWithRetry(ctx, func() error {
 		return s.db.QueryRowContext(ctx,
 			"SELECT value FROM counters WHERE name = $1", name).Scan(&value)
 	})
-
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return 0, false
+			return 0, false, nil
 		}
-		return 0, false
+		return 0, false, err
 	}
-	return value, true
+	return value, true, nil
 }
 
-func (s *PGStorage) GetAllMetrics() string {
+// GetAllMetrics возвращает строковое представление всех метрик из БД.
+func (s *PGStorage) GetAllMetrics() (string, error) {
 	var result string
-
 	ctx := context.Background()
 	err := s.executeWithRetry(ctx, func() error {
 		rows, err := s.db.QueryContext(ctx, "SELECT name, value FROM gauges")
@@ -179,7 +195,6 @@ func (s *PGStorage) GetAllMetrics() string {
 			return nil
 		}
 		defer rows.Close()
-
 		result += "Gauges:\n"
 		for rows.Next() {
 			var name string
@@ -199,7 +214,6 @@ func (s *PGStorage) GetAllMetrics() string {
 			return nil
 		}
 		defer rows.Close()
-
 		result += "Counters:\n"
 		for rows.Next() {
 			var name string
@@ -212,17 +226,15 @@ func (s *PGStorage) GetAllMetrics() string {
 		if err := rows.Err(); err != nil {
 			result += fmt.Sprintf("Error iterating counters: %v\n", err)
 		}
-
 		return nil
 	})
-
 	if err != nil {
 		result += fmt.Sprintf("Error executing query: %v\n", err)
 	}
-
-	return result
+	return result, nil
 }
 
+// UpdateBatch обновляет несколько метрик за одну транзакцию.
 func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
 	ctx := context.Background()
 	return s.executeInTransaction(ctx, func(tx *sql.Tx) error {
@@ -253,6 +265,7 @@ func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
 	})
 }
 
-func (s *PGStorage) Close() {
-	s.db.Close()
+// Close закрывает соединение с БД.
+func (s *PGStorage) Close() error {
+	return s.db.Close()
 }
