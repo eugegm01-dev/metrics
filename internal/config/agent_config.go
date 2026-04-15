@@ -7,26 +7,34 @@ import (
 	"time"
 )
 
+// AgentConfig содержит конфигурацию агента.
 type AgentConfig struct {
 	ServerAddr     string
 	PollInterval   time.Duration
 	ReportInterval time.Duration
 	RateLimit      int
-	Key            string // Добавляем поле для ключа
+	Key            string // поле для ключа
+	CryptoKey      string // путь к публичному ключу
+
 }
+
+// ParseAgentConfig читает конфигурацию агента из флагов командной строки и переменных окружения.
+// Приоритет: переменные окружения переопределяют флаги.
 
 func ParseAgentConfig() (*AgentConfig, error) {
 	var flagServerAddr string
 	var flagPollInterval int
 	var flagReportInterval int
 	var flagRateLimit int
-	var flagKey string // Добавляем флаг для ключа
+	var flagKey string // флаг для ключа
+	var flagCryptoKey string
 
 	flag.StringVar(&flagServerAddr, "a", "localhost:8080", "адрес и порт сервера")
 	flag.IntVar(&flagPollInterval, "p", 2, "интервал опроса метрик в секундах")
 	flag.IntVar(&flagReportInterval, "r", 10, "интервал отправки метрик в секундах")
 	flag.IntVar(&flagRateLimit, "l", 10, "количество одновременно исходящих запросов")
 	flag.StringVar(&flagKey, "k", "", "ключ для подписи запросов") // Добавляем флаг
+	flag.StringVar(&flagCryptoKey, "crypto-key", "", "путь к файлу публичного ключа")
 
 	flag.Parse()
 
@@ -37,6 +45,7 @@ func ParseAgentConfig() (*AgentConfig, error) {
 		RateLimit:      flagRateLimit,
 		Key:            flagKey,
 	}
+	cfg.CryptoKey = flagCryptoKey
 
 	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
 		cfg.ServerAddr = envAddr
@@ -58,6 +67,9 @@ func ParseAgentConfig() (*AgentConfig, error) {
 	}
 	if envKey, ok := os.LookupEnv("KEY"); ok {
 		cfg.Key = envKey // Читаем ключ из переменной окружения
+	}
+	if envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY"); ok && envCryptoKey != "" {
+		cfg.CryptoKey = envCryptoKey
 	}
 
 	return cfg, nil

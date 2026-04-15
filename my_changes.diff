@@ -1,0 +1,1275 @@
+diff --git a/cmd/agent/main.go b/cmd/agent/main.go
+index c3a7840..497bab2 100644
+--- a/cmd/agent/main.go
++++ b/cmd/agent/main.go
+@@ -1,7 +1,8 @@
+ package main
+ 
+ import (
+-	"log"
++	"fmt"
++	"os"
+ 
+ 	"github.com/eugegm01-dev/metrics/internal/app"
+ 	"go.uber.org/zap"
+@@ -10,11 +11,15 @@ import (
+ func main() {
+ 	logger, err := zap.NewDevelopment()
+ 	if err != nil {
+-		log.Fatal("Failed to create logger", err)
++		fatal(fmt.Errorf("failed to create logger: %w", err))
+ 	}
+-	defer logger.Sync()
+-
++	defer func() { _ = logger.Sync() }()
+ 	if err := app.RunAgent(); err != nil {
+-		logger.Fatal("Agent error", zap.Error(err))
++		fatal(fmt.Errorf("agent error: %w", err))
+ 	}
+ }
++
++func fatal(err error) {
++	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
++	os.Exit(1)
++}
+diff --git a/cmd/server/main.go b/cmd/server/main.go
+index d164e0d..56b74b1 100644
+--- a/cmd/server/main.go
++++ b/cmd/server/main.go
+@@ -1,7 +1,8 @@
+ package main
+ 
+ import (
+-	"log"
++	"fmt"
++	"os"
+ 
+ 	_ "net/http/pprof"
+ 
+@@ -12,11 +13,15 @@ import (
+ func main() {
+ 	logger, err := zap.NewDevelopment()
+ 	if err != nil {
+-		log.Fatal("Failed to create logger", err)
++		fatal(fmt.Errorf("failed to create logger: %w", err))
+ 	}
+-	defer logger.Sync()
+-
++	defer func() { _ = logger.Sync() }()
+ 	if err := app.RunServer(); err != nil {
+-		logger.Fatal("Server error", zap.Error(err))
++		fatal(fmt.Errorf("server error: %w", err))
+ 	}
+ }
++
++func fatal(err error) {
++	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
++	os.Exit(1)
++}
+diff --git a/go.mod b/go.mod
+index 06e2e34..6090c54 100644
+--- a/go.mod
++++ b/go.mod
+@@ -7,9 +7,23 @@ require (
+ 	github.com/hashicorp/go-retryablehttp v0.7.8
+ 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
+ 	github.com/jackc/pgx/v5 v5.8.0
++	github.com/kisielk/errcheck v1.8.0
+ 	github.com/pressly/goose/v3 v3.26.0
+ 	github.com/shirou/gopsutil/v3 v3.24.5
++	github.com/timakin/bodyclose v0.0.0-20241017074812-ed6a65f985e3
+ 	go.uber.org/zap v1.27.1
++	golang.org/x/tools v0.36.0
++	honnef.co/go/tools v0.6.0
++)
++
++require (
++	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c // indirect
++	github.com/gostaticanalysis/analysisutil v0.7.1 // indirect
++	github.com/gostaticanalysis/comment v1.4.2 // indirect
++	golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 // indirect
++	golang.org/x/mod v0.27.0 // indirect
++	golang.org/x/tools/go/expect v0.1.1-deprecated // indirect
++	golang.org/x/tools/go/packages/packagestest v0.1.1-deprecated // indirect
+ )
+ 
+ require (
+diff --git a/go.sum b/go.sum
+index f064160..6fa7326 100644
+--- a/go.sum
++++ b/go.sum
+@@ -1,3 +1,5 @@
++github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c h1:pxW6RcqyfI9/kWtOwnv/G+AzdKuy2ZrqINhenH4HyNs=
++github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
+ github.com/avast/retry-go/v4 v4.7.0 h1:yjDs35SlGvKwRNSykujfjdMxMhMQQM0TnIjJaHB+Zio=
+ github.com/avast/retry-go/v4 v4.7.0/go.mod h1:ZMPDa3sY2bKgpLtap9JRUgk2yTAba7cgiFhqxY2Sg6Q=
+ github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+@@ -12,17 +14,27 @@ github.com/go-chi/chi/v5 v5.2.3/go.mod h1:L2yAIGWB3H+phAw1NxKwWM+7eUH/lU8pOMm5hH
+ github.com/go-ole/go-ole v1.2.6/go.mod h1:pprOEPIfldk/42T2oK7lQ4v4JSDwmV0As9GaiUsvbm0=
+ github.com/go-ole/go-ole v1.3.0 h1:Dt6ye7+vXGIKZ7Xtk4s6/xVdGDQynvom7xCFEdWr6uE=
+ github.com/go-ole/go-ole v1.3.0/go.mod h1:5LS6F96DhAwUc7C+1HLexzMXY1xGRSryjyPPKW6zv78=
++github.com/google/go-cmp v0.5.2/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
++github.com/google/go-cmp v0.5.4/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
+ github.com/google/go-cmp v0.5.6/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
+ github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
+ github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
+ github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+ github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
++github.com/gostaticanalysis/analysisutil v0.7.1 h1:ZMCjoue3DtDWQ5WyU16YbjbQEQ3VuzwxALrpYd+HeKk=
++github.com/gostaticanalysis/analysisutil v0.7.1/go.mod h1:v21E3hY37WKMGSnbsw2S/ojApNWb6C1//mXO48CXbVc=
++github.com/gostaticanalysis/comment v1.4.2 h1:hlnx5+S2fY9Zo9ePo4AhgYsYHbM2+eAv8m/s1JiCd6Q=
++github.com/gostaticanalysis/comment v1.4.2/go.mod h1:KLUTGDv6HOCotCH8h2erHKmpci2ZoR8VPu34YA2uzdM=
++github.com/gostaticanalysis/testutil v0.3.1-0.20210208050101-bfb5c8eec0e4 h1:d2/eIbH9XjD1fFwD5SHv8x168fjbQ9PB8hvs8DSEC08=
++github.com/gostaticanalysis/testutil v0.3.1-0.20210208050101-bfb5c8eec0e4/go.mod h1:D+FIZ+7OahH3ePw/izIEeH5I06eKs1IKI4Xr64/Am3M=
+ github.com/hashicorp/go-cleanhttp v0.5.2 h1:035FKYIWjmULyFRBKPs8TBQoi0x6d9G4xc9neXJWAZQ=
+ github.com/hashicorp/go-cleanhttp v0.5.2/go.mod h1:kO/YDlP8L1346E6Sodw+PrpBSV4/SoxCXGY6BqNFT48=
+ github.com/hashicorp/go-hclog v1.6.3 h1:Qr2kF+eVWjTiYmU7Y31tYlP1h0q/X3Nl3tPGdaB11/k=
+ github.com/hashicorp/go-hclog v1.6.3/go.mod h1:W4Qnvbt70Wk/zYJryRzDRU/4r0kIg0PVHBcfoyhpF5M=
+ github.com/hashicorp/go-retryablehttp v0.7.8 h1:ylXZWnqa7Lhqpk0L1P1LzDtGcCR0rPVUrx/c8Unxc48=
+ github.com/hashicorp/go-retryablehttp v0.7.8/go.mod h1:rjiScheydd+CxvumBsIrFKlx3iS0jrZ7LvzFGFmuKbw=
++github.com/hashicorp/go-version v1.2.1 h1:zEfKbn2+PDgroKdiOzqiE8rsmLqU2uwi5PB5pBJ3TkI=
++github.com/hashicorp/go-version v1.2.1/go.mod h1:fltr4n8CU8Ke44wwGCBoEymUuxUHl09ZGVZPK5anwXA=
+ github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438 h1:Dj0L5fhJ9F82ZJyVOmBx6msDp/kfd1t9GRfny/mfJA0=
+ github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438/go.mod h1:a/s9Lp5W7n/DD0VrVoyJ00FbP2ytTPDVOivvn2bMlds=
+ github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
+@@ -33,6 +45,8 @@ github.com/jackc/pgx/v5 v5.8.0 h1:TYPDoleBBme0xGSAX3/+NujXXtpZn9HBONkQC7IEZSo=
+ github.com/jackc/pgx/v5 v5.8.0/go.mod h1:QVeDInX2m9VyzvNeiCJVjCkNFqzsNb43204HshNSZKw=
+ github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo=
+ github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
++github.com/kisielk/errcheck v1.8.0 h1:ZX/URYa7ilESY19ik/vBmCn6zdGQLxACwjAcWbHlYlg=
++github.com/kisielk/errcheck v1.8.0/go.mod h1:1kLL+jV4e+CFfueBmI1dSK2ADDyQnlrnrY/FqKluHJQ=
+ github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 h1:6E+4a0GO5zZEnZ81pIr0yLvtUWk2if982qA3F3QD6H4=
+ github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0/go.mod h1:zJYVVT2jmtg6P3p1VtQj7WsuWi/y4VnjVBn7F8KPB3I=
+ github.com/mattn/go-colorable v0.1.13 h1:fFA4WZxdEF4tXPZVKMLwD8oUnCTTo08duU7wxecdEvA=
+@@ -43,6 +57,12 @@ github.com/mfridman/interpolate v0.0.2 h1:pnuTK7MQIxxFz1Gr+rjSIx9u7qVjf5VOoM/u6B
+ github.com/mfridman/interpolate v0.0.2/go.mod h1:p+7uk6oE07mpE/Ik1b8EckO0O4ZXiGAfshKBWLUM9Xg=
+ github.com/ncruces/go-strftime v0.1.9 h1:bY0MQC28UADQmHmaF5dgpLmImcShSi2kHU9XLdhx/f4=
+ github.com/ncruces/go-strftime v0.1.9/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
++github.com/otiai10/copy v1.2.0 h1:HvG945u96iNadPoG2/Ja2+AUJeW5YuFQMixq9yirC+k=
++github.com/otiai10/copy v1.2.0/go.mod h1:rrF5dJ5F0t/EWSYODDu4j9/vEeYHMkc8jt0zJChqQWw=
++github.com/otiai10/curr v0.0.0-20150429015615-9b4961190c95/go.mod h1:9qAhocn7zKJG+0mI8eUu6xqkFDYS2kb2saOteoSB3cE=
++github.com/otiai10/curr v1.0.0/go.mod h1:LskTG5wDwr8Rs+nNQ+1LlxRjAtTZZjtJW4rMXl6j4vs=
++github.com/otiai10/mint v1.3.0/go.mod h1:F5AjcsTsWUqX+Na9fpHb52P8pcRX2CI6A3ctIT91xUo=
++github.com/otiai10/mint v1.3.1/go.mod h1:/yxELlJQ0ufhjUwhshSj+wFjZ78CnZ48/1wtmBH1OTc=
+ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
+ github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+ github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c h1:ncq/mPwQF4JjgDlrVEn3C11VoGHZN7m8qihwgMEtzYw=
+@@ -64,10 +84,18 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
+ github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
+ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
+ github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
++github.com/tenntenn/modver v1.0.1 h1:2klLppGhDgzJrScMpkj9Ujy3rXPUspSjAcev9tSEBgA=
++github.com/tenntenn/modver v1.0.1/go.mod h1:bePIyQPb7UeioSRkw3Q0XeMhYZSMx9B8ePqg6SAMGH0=
++github.com/tenntenn/text/transform v0.0.0-20200319021203-7eef512accb3 h1:f+jULpRQGxTSkNYKJ51yaw6ChIqO+Je8UqsTKN/cDag=
++github.com/tenntenn/text/transform v0.0.0-20200319021203-7eef512accb3/go.mod h1:ON8b8w4BN/kE1EOhwT0o+d62W65a6aPw1nouo9LMgyY=
++github.com/timakin/bodyclose v0.0.0-20241017074812-ed6a65f985e3 h1:y4mJRFlM6fUyPhoXuFg/Yu02fg/nIPFMOY8tOqppoFg=
++github.com/timakin/bodyclose v0.0.0-20241017074812-ed6a65f985e3/go.mod h1:mkjARE7Yr8qU23YcGMSALbIxTQ9r9QBVahQOBRfU460=
+ github.com/tklauser/go-sysconf v0.3.16 h1:frioLaCQSsF5Cy1jgRBrzr6t502KIIwQ0MArYICU0nA=
+ github.com/tklauser/go-sysconf v0.3.16/go.mod h1:/qNL9xxDhc7tx3HSRsLWNnuzbVfh3e7gh/BmM179nYI=
+ github.com/tklauser/numcpus v0.11.0 h1:nSTwhKH5e1dMNsCdVBukSZrURJRoHbSEQjdEbY+9RXw=
+ github.com/tklauser/numcpus v0.11.0/go.mod h1:z+LwcLq54uWZTX0u/bGobaV34u6V7KNlTZejzM6/3MQ=
++github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
++github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
+ github.com/yusufpapurcu/wmi v1.2.4 h1:zFUKzehAFReQwLys1b/iSMl+JQGSCSjtVqQn9bBrPo0=
+ github.com/yusufpapurcu/wmi v1.2.4/go.mod h1:SBZ9tNy3G9/m5Oi98Zks0QjeHVDvuK0qfxQmPyzfmi0=
+ go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
+@@ -76,22 +104,96 @@ go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=
+ go.uber.org/multierr v1.11.0/go.mod h1:20+QtiLqy0Nd6FdQB9TLXag12DsQkrbs3htMFfDN80Y=
+ go.uber.org/zap v1.27.1 h1:08RqriUEv8+ArZRYSTXy1LeBScaMpVSTBhCeaZYfMYc=
+ go.uber.org/zap v1.27.1/go.mod h1:GB2qFLM7cTU87MWRP2mPIjqfIDnGu+VIO4V/SdhGo2E=
++golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
++golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550/go.mod h1:yigFU9vqHzYiE8UmvKecakEJjdnWj3jj499lnFckfCI=
++golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9/go.mod h1:LzIPMQfyMNhhGPhUkYOs5KpL4U8rLKemX1yGLhDgUto=
++golang.org/x/crypto v0.0.0-20210921155107-089bfa567519/go.mod h1:GvvjBRRGRdwPK5ydBHafDWAxML/pGHZbMvKqRZ5+Abc=
++golang.org/x/crypto v0.13.0/go.mod h1:y6Z2r+Rw4iayiXXAIxJIDAJ1zMW4yaTpebo8fPOliYc=
++golang.org/x/crypto v0.14.0/go.mod h1:MVFd36DqK4CsrnJYDkBA3VC4m2GkXAM0PvzMCn4JQf4=
+ golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b h1:M2rDM6z3Fhozi9O7NWsxAkg/yqS/lQJ6PmkyIV3YP+o=
+ golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b/go.mod h1:3//PLf8L/X+8b4vuAfHzxeRUl04Adcb341+IGKfnqS8=
++golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 h1:1P7xPZEwZMoBoz0Yze5Nx2/4pxj6nw9ZqHWXqP0iRgQ=
++golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678/go.mod h1:AbB0pIl9nAr9wVwH+Z2ZpaocVmF5I4GyWCDIsVjR0bk=
++golang.org/x/mod v0.4.1/go.mod h1:s0Qsj1ACt9ePp/hMypM3fl4fZqREWJwdYDEqhRiZZUA=
++golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4/go.mod h1:jJ57K6gSWd91VN4djpZkiMVwK6gcyfeH4XE8wZrZaV4=
++golang.org/x/mod v0.8.0/go.mod h1:iBbtSCu2XBx23ZKBPSOrRkjjQPZFPuis4dIYUhu/chs=
++golang.org/x/mod v0.12.0/go.mod h1:iBbtSCu2XBx23ZKBPSOrRkjjQPZFPuis4dIYUhu/chs=
++golang.org/x/mod v0.13.0/go.mod h1:hTbmBsO62+eylJbnUtE2MGJUyE7QWk4xUqPFrRgJ+7c=
++golang.org/x/mod v0.27.0 h1:kb+q2PyFnEADO2IEF935ehFUXlWiNjJWtRNgBLSfbxQ=
++golang.org/x/mod v0.27.0/go.mod h1:rWI627Fq0DEoudcK+MBkNkCe0EetEaDSwJJkCcjpazc=
++golang.org/x/net v0.0.0-20190404232315-eb5bcb51f2a3/go.mod h1:t9HGtf8HONx5eT2rtn7q6eTqICYqUVnKs3thJo3Qplg=
++golang.org/x/net v0.0.0-20190620200207-3b0461eec859/go.mod h1:z5CRVTTTmAJ677TzLLGU+0bjPO0LkuOLi4/5GtJWs/s=
++golang.org/x/net v0.0.0-20201021035429-f5854403a974/go.mod h1:sp8m0HH+o8qH0wwXwYZr8TS3Oi6o0r6Gce1SSxlDquU=
++golang.org/x/net v0.0.0-20210226172049-e18ecbb05110/go.mod h1:m0MpNAwzfU5UDzcl9v0D8zg8gWTRqZa9RBIspLL5mdg=
++golang.org/x/net v0.0.0-20220722155237-a158d28d115b/go.mod h1:XRhObCWvk6IyKnWLug+ECip1KBveYUHfp+8e9klMJ9c=
++golang.org/x/net v0.6.0/go.mod h1:2Tu9+aMcznHK/AK1HMvgo6xiTLG5rD5rZLDS+rp2Bjs=
++golang.org/x/net v0.10.0/go.mod h1:0qNGK6F8kojg2nk9dLZ2mShWaEBan6FAoqfSigmmuDg=
++golang.org/x/net v0.15.0/go.mod h1:idbUs1IY1+zTqbi8yxTbhexhEEk5ur9LInksu6HrEpk=
++golang.org/x/net v0.16.0/go.mod h1:NxSsAGuq816PNPmqtQdLE42eU2Fs7NoRIZrHJAlaCOE=
++golang.org/x/sync v0.0.0-20190423024810-112230192c58/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
++golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
++golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
++golang.org/x/sync v0.1.0/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
++golang.org/x/sync v0.3.0/go.mod h1:FU7BRWz2tNW+3quACPkgCx/L+uEAv1htQ0V83Z9Rj+Y=
++golang.org/x/sync v0.4.0/go.mod h1:FU7BRWz2tNW+3quACPkgCx/L+uEAv1htQ0V83Z9Rj+Y=
+ golang.org/x/sync v0.17.0 h1:l60nONMj9l5drqw6jlhIELNv9I0A4OFgRsG9k2oT9Ug=
+ golang.org/x/sync v0.17.0/go.mod h1:9KTHXmSnoGruLpwFjVSX0lNNA75CykiMECbovNTZqGI=
++golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
++golang.org/x/sys v0.0.0-20190412213103-97732733099d/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+ golang.org/x/sys v0.0.0-20190916202348-b4ddaad3f8a3/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
++golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
++golang.org/x/sys v0.0.0-20201119102817-f84b799fce68/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+ golang.org/x/sys v0.0.0-20201204225414-ed752295db88/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
++golang.org/x/sys v0.0.0-20210124154548-22da62e12c0c/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
++golang.org/x/sys v0.0.0-20210615035016-665e8c7367d1/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.1.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.5.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.8.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.12.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.13.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.40.0 h1:DBZZqJ2Rkml6QMQsZywtnjnnGvHza6BTfYFWY9kjEWQ=
+ golang.org/x/sys v0.40.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
++golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
++golang.org/x/term v0.0.0-20210927222741-03fcf44c2211/go.mod h1:jbD1KX2456YbFQfuXm/mYQcufACuNUgVhRMnK/tPxf8=
++golang.org/x/term v0.5.0/go.mod h1:jMB1sMXY+tzblOD4FWmEbocvup2/aLOaQEp7JmGp78k=
++golang.org/x/term v0.8.0/go.mod h1:xPskH00ivmX89bAKVGSKKtLOWNx2+17Eiy94tnKShWo=
++golang.org/x/term v0.12.0/go.mod h1:owVbMEjm3cBLCHdkQu9b1opXd4ETQWc3BhuQGKgXgvU=
++golang.org/x/term v0.13.0/go.mod h1:LTmsnFJwVN6bCy1rVCoS+qHT1HhALEFxKncY3WNNh4U=
++golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
++golang.org/x/text v0.3.2/go.mod h1:bEr9sfX3Q8Zfm5fL9x+3itogRgK3+ptLWKqgva+5dAk=
++golang.org/x/text v0.3.3/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
++golang.org/x/text v0.3.7/go.mod h1:u+2+/6zg+i71rQMx5EYifcz6MCKuco9NR6JIITiCfzQ=
++golang.org/x/text v0.7.0/go.mod h1:mrYo+phRRbMaCq/xk9113O4dZlRixOauAjOtrjsXDZ8=
++golang.org/x/text v0.9.0/go.mod h1:e1OnstbJyHTd6l/uOt8jFFHp6TRDWZR/bV3emEE/zU8=
++golang.org/x/text v0.13.0/go.mod h1:TvPlkZtksWOMsz7fbANvkp4WM8x/WCo/om8BMLbz+aE=
+ golang.org/x/text v0.29.0 h1:1neNs90w9YzJ9BocxfsQNHKuAT4pkghyXc4nhZ6sJvk=
+ golang.org/x/text v0.29.0/go.mod h1:7MhJOA9CD2qZyOKYazxdYMF85OwPdEr9jTtBpO7ydH4=
++golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
++golang.org/x/tools v0.0.0-20191119224855-298f0cb1881e/go.mod h1:b+2E5dAYhXwXZwtnZ6UAqBI28+e2cm9otk0dWdXHAEo=
++golang.org/x/tools v0.1.1-0.20210205202024-ef80cdb6ec6d/go.mod h1:9bzcO0MWcOuT0tm1iBGzDVPshzfwoVvREIui8C+MHqU=
++golang.org/x/tools v0.1.1-0.20210302220138-2ac05c832e1a/go.mod h1:9bzcO0MWcOuT0tm1iBGzDVPshzfwoVvREIui8C+MHqU=
++golang.org/x/tools v0.1.12/go.mod h1:hNGJHUnrk76NpqgfD5Aqm5Crs+Hm0VOH/i9J2+nxYbc=
++golang.org/x/tools v0.6.0/go.mod h1:Xwgl3UAJ/d3gWutnCtw505GrjyAbvKui8lOU390QaIU=
++golang.org/x/tools v0.13.0/go.mod h1:HvlwmtVNQAhOuCjW7xxvovg8wbNq7LwfXh/k7wXUl58=
++golang.org/x/tools v0.14.0/go.mod h1:uYBEerGOWcJyEORxN+Ek8+TT266gXkNlHdJBwexUsBg=
++golang.org/x/tools v0.36.0 h1:kWS0uv/zsvHEle1LbV5LE8QujrxB3wfQyxHfhOk0Qkg=
++golang.org/x/tools v0.36.0/go.mod h1:WBDiHKJK8YgLHlcQPYQzNCkUxUypCaa5ZegCVutKm+s=
++golang.org/x/tools/go/expect v0.1.1-deprecated h1:jpBZDwmgPhXsKZC6WhL20P4b/wmnpsEAGHaNy0n/rJM=
++golang.org/x/tools/go/expect v0.1.1-deprecated/go.mod h1:eihoPOH+FgIqa3FpoTwguz/bVUSGBlGQU67vpBeOrBY=
++golang.org/x/tools/go/packages/packagestest v0.1.1-deprecated h1:1h2MnaIAIXISqTFKdENegdpAgUXz6NrPEsbIeWaBRvM=
++golang.org/x/tools/go/packages/packagestest v0.1.1-deprecated/go.mod h1:RVAQXBGNv1ib0J382/DPCRS/BPnsGebyM1Gj5VSDpG8=
++golang.org/x/xerrors v0.0.0-20190717185122-a985d3407aa7/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
++golang.org/x/xerrors v0.0.0-20191011141410-1b5146add898/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
+ golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
++golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
+ gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
+ gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+ gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
+ gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
++honnef.co/go/tools v0.6.0 h1:TAODvD3knlq75WCp2nyGJtT4LeRV/o7NN9nYPeVJXf8=
++honnef.co/go/tools v0.6.0/go.mod h1:3puzxxljPCe8RGJX7BIy1plGbxEOZni5mR2aXe3/uk4=
+ modernc.org/libc v1.66.3 h1:cfCbjTUcdsKyyZZfEUKfoHcP3S0Wkvz3jgSzByEWVCQ=
+ modernc.org/libc v1.66.3/go.mod h1:XD9zO8kt59cANKvHPXpx7yS2ELPheAey0vjIuZOhOU8=
+ modernc.org/mathutil v1.7.1 h1:GCZVGXdaN8gTqB1Mf/usp1Y/hSqgI2vAGGP4jZMCxOU=
+diff --git a/internal/agent/agent.go b/internal/agent/agent.go
+index d969653..10bce3e 100644
+--- a/internal/agent/agent.go
++++ b/internal/agent/agent.go
+@@ -1,3 +1,4 @@
++// Package agent collects system and runtime metrics and sends them to the server.
+ package agent
+ 
+ import (
+diff --git a/internal/agent/sender.go b/internal/agent/sender.go
+index 7cf8fc1..3a94ef5 100644
+--- a/internal/agent/sender.go
++++ b/internal/agent/sender.go
+@@ -108,7 +108,7 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) e
+ 	if err != nil {
+ 		return fmt.Errorf("failed to send request after retries: %w", err)
+ 	}
+-	defer resp.Body.Close()
++	defer func() { _ = resp.Body.Close() }()
+ 
+ 	if resp.StatusCode != http.StatusOK {
+ 		return fmt.Errorf("server returned status: %d", resp.StatusCode)
+@@ -159,7 +159,7 @@ func SendMetrics(serverAddr string, metrics []models.Metrics, key string) error
+ 		if err != nil {
+ 			return fmt.Errorf("failed to send metric %s after retries: %w", metric.ID, err)
+ 		}
+-		resp.Body.Close()
++		defer func() { _ = resp.Body.Close() }()
+ 
+ 		if resp.StatusCode != http.StatusOK {
+ 			return fmt.Errorf("server returned status %d for metric %s", resp.StatusCode, metric.ID)
+diff --git a/internal/app/agent.go b/internal/app/agent.go
+index 51f69aa..6f3a0b9 100644
+--- a/internal/app/agent.go
++++ b/internal/app/agent.go
+@@ -1,3 +1,4 @@
++// Package app contains the main application logic for the agent and server.
+ package app
+ 
+ import (
+@@ -18,7 +19,7 @@ func RunAgent() error {
+ 	if err != nil {
+ 		return fmt.Errorf("failed to create logger: %w", err)
+ 	}
+-	defer logger.Sync()
++	defer func() { _ = logger.Sync() }()
+ 
+ 	cfg, err := config.ParseAgentConfig()
+ 	if err != nil {
+diff --git a/internal/app/server.go b/internal/app/server.go
+index f021863..f576e77 100644
+--- a/internal/app/server.go
++++ b/internal/app/server.go
+@@ -1,3 +1,4 @@
++// Package app contains the main application logic for the agent and server.
+ package app
+ 
+ import (
+@@ -32,7 +33,7 @@ func RunServer() error {
+ 	if err != nil {
+ 		return fmt.Errorf("failed to initialize logger: %w", err)
+ 	}
+-	defer logger.Sync()
++	defer func() { _ = logger.Sync() }()
+ 
+ 	cfg, err := config.ParseServerConfig()
+ 	if err != nil {
+diff --git a/internal/audit/http_observer.go b/internal/audit/http_observer.go
+index bd28c45..600e8ed 100644
+--- a/internal/audit/http_observer.go
++++ b/internal/audit/http_observer.go
+@@ -47,8 +47,7 @@ func (h *HTTPObserver) Update(event *AuditEvent) error {
+ 	if err != nil {
+ 		return fmt.Errorf("do request: %w", err)
+ 	}
+-	defer resp.Body.Close()
+-
++	defer func() { _ = resp.Body.Close() }()
+ 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+ 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+ 	}
+@@ -58,4 +57,4 @@ func (h *HTTPObserver) Update(event *AuditEvent) error {
+ // Close – заглушка для HTTPObserver.
+ func (h *HTTPObserver) Close() error {
+ 	return nil
+-}
+\ No newline at end of file
++}
+diff --git a/internal/audit/subject.go b/internal/audit/subject.go
+index 1277412..d3eb7e5 100644
+--- a/internal/audit/subject.go
++++ b/internal/audit/subject.go
+@@ -1,3 +1,4 @@
++// Package audit is checking
+ package audit
+ 
+ import (
+@@ -12,11 +13,13 @@ type Subject struct {
+ 	mu        sync.RWMutex
+ 	observers []Observer
+ }
++
+ // Observer определяет интерфейс наблюдателя за событиями аудита.
+ type Observer interface {
+ 	Update(event *AuditEvent) error
+ 	Close() error
+ }
++
+ // NewSubject создаёт новый Subject.
+ func NewSubject() *Subject {
+ 	return &Subject{
+diff --git a/internal/config/server.go b/internal/config/server.go
+index 551ce07..060b26b 100644
+--- a/internal/config/server.go
++++ b/internal/config/server.go
+@@ -1,3 +1,4 @@
++// Package config contains the server's and database's cofiguration
+ package config
+ 
+ import (
+@@ -91,12 +92,12 @@ func ParseServerConfig() (*ServerConfig, error) {
+ 	if envFilePath, ok := os.LookupEnv("FILE_STORAGE_PATH"); ok {
+ 		cfg.FileStoragePath = envFilePath
+ 	}
+-if envAuditFile, ok := os.LookupEnv("AUDIT_FILE"); ok && envAuditFile != "" {
+-	cfg.AuditFile = envAuditFile
+-}
+-if envAuditURL, ok := os.LookupEnv("AUDIT_URL"); ok && envAuditURL != "" {
+-	cfg.AuditURL = envAuditURL
+-}
++	if envAuditFile, ok := os.LookupEnv("AUDIT_FILE"); ok && envAuditFile != "" {
++		cfg.AuditFile = envAuditFile
++	}
++	if envAuditURL, ok := os.LookupEnv("AUDIT_URL"); ok && envAuditURL != "" {
++		cfg.AuditURL = envAuditURL
++	}
+ 	// RESTORE
+ 	if envRestore, ok := os.LookupEnv("RESTORE"); ok {
+ 		val, err := strconv.ParseBool(envRestore)
+diff --git a/internal/handler/metrics.go b/internal/handler/metrics.go
+index 2e2de2c..0fc4324 100644
+--- a/internal/handler/metrics.go
++++ b/internal/handler/metrics.go
+@@ -1,3 +1,4 @@
++// Package handler contains HTTP request handlers for the metrics server.
+ package handler
+ 
+ import (
+@@ -185,27 +186,37 @@ func UpdateJSONHandler(storage repository.Storage, key string) http.HandlerFunc
+ 				http.Error(w, "Value is required for gauge", http.StatusBadRequest)
+ 				return
+ 			}
+-			storage.UpdateGauge(metric.ID, *metric.Value)
++			if err := storage.UpdateGauge(metric.ID, *metric.Value); err != nil {
++				http.Error(w, err.Error(), http.StatusInternalServerError)
++				return
++			}
+ 		case models.Counter:
+ 			if metric.Delta == nil {
+ 				http.Error(w, "Delta is required for counter", http.StatusBadRequest)
+ 				return
+ 			}
+-			storage.UpdateCounter(metric.ID, *metric.Delta)
+-		default:
+-			http.Error(w, "Invalid metric type", http.StatusBadRequest)
+-			return
++			if err := storage.UpdateCounter(metric.ID, *metric.Delta); err != nil {
++				http.Error(w, err.Error(), http.StatusInternalServerError)
++				return
++			}
+ 		}
+-
+ 		var response models.Metrics
+ 		response.ID = metric.ID
+ 		response.MType = metric.MType
+ 		switch metric.MType {
+ 		case models.Gauge:
+-			val, _ := storage.GetGauge(metric.ID)
++			val, _, err := storage.GetGauge(metric.ID)
++			if err != nil {
++				http.Error(w, err.Error(), http.StatusInternalServerError)
++				return
++			}
+ 			response.Value = &val
+ 		case models.Counter:
+-			val, _ := storage.GetCounter(metric.ID)
++			val, _, err := storage.GetCounter(metric.ID)
++			if err != nil {
++				http.Error(w, err.Error(), http.StatusInternalServerError)
++				return
++			}
+ 			response.Delta = &val
+ 		}
+ 
+@@ -252,7 +263,11 @@ func GetMetricHandler(storage repository.Storage, key string) http.HandlerFunc {
+ 
+ 		switch metricType {
+ 		case "gauge":
+-			value, exists := storage.GetGauge(metricName)
++			value, exists, err := storage.GetGauge(metricName)
++			if err != nil {
++				http.Error(w, err.Error(), http.StatusInternalServerError)
++				return
++			}
+ 			if !exists {
+ 				http.Error(w, "Metric not found", http.StatusNotFound)
+ 				return
+@@ -262,7 +277,11 @@ func GetMetricHandler(storage repository.Storage, key string) http.HandlerFunc {
+ 			fmt.Fprintf(w, "%v", value)
+ 
+ 		case "counter":
+-			value, exists := storage.GetCounter(metricName)
++			value, exists, err := storage.GetCounter(metricName)
++			if err != nil {
++				http.Error(w, err.Error(), http.StatusInternalServerError)
++				return
++			}
+ 			if !exists {
+ 				http.Error(w, "Metric not found", http.StatusNotFound)
+ 				return
+@@ -307,7 +326,11 @@ func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
+ 
+ 		switch metric.MType {
+ 		case models.Gauge:
+-			value, exists := storage.GetGauge(metric.ID)
++			value, exists, err := storage.GetGauge(metric.ID)
++			if err != nil {
++				http.Error(w, err.Error(), http.StatusInternalServerError)
++				return
++			}
+ 			if !exists {
+ 				http.Error(w, "Metric not found", http.StatusNotFound)
+ 				return
+@@ -315,7 +338,11 @@ func ValueJSONHandler(storage repository.Storage, key string) http.HandlerFunc {
+ 			response.Value = &value
+ 
+ 		case models.Counter:
+-			value, exists := storage.GetCounter(metric.ID)
++			value, exists, err := storage.GetCounter(metric.ID)
++			if err != nil {
++				http.Error(w, err.Error(), http.StatusInternalServerError)
++				return
++			}
+ 			if !exists {
+ 				http.Error(w, "Metric not found", http.StatusNotFound)
+ 				return
+@@ -359,8 +386,11 @@ func IndexHTMLHandler(storage repository.Storage, key string) http.HandlerFunc {
+ 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+ 		w.WriteHeader(http.StatusOK)
+ 
+-		metricsText := storage.GetAllMetrics()
+-
++		metricsText, err := storage.GetAllMetrics()
++		if err != nil {
++			http.Error(w, err.Error(), http.StatusInternalServerError)
++			return
++		}
+ 		htmlContent := `
+ <!DOCTYPE html>
+ <html>
+diff --git a/internal/handler/metrics_test.go b/internal/handler/metrics_test.go
+index 5f5928c..8c68f73 100644
+--- a/internal/handler/metrics_test.go
++++ b/internal/handler/metrics_test.go
+@@ -15,10 +15,9 @@ import (
+ 
+ func TestGetMetricHandler(t *testing.T) {
+ 	storage := repository.NewMemStorage()
+-	storage.UpdateCounter("test", 42)
++	_ = storage.UpdateCounter("test", 42) // игнорируем ошибку (в тесте она не возникнет)
+ 
+ 	r := chi.NewRouter()
+-	// Передаем пустую строку как ключ (для тестов)
+ 	r.Get("/value/{type}/{name}", GetMetricHandler(storage, ""))
+ 
+ 	ts := httptest.NewServer(r)
+@@ -29,7 +28,6 @@ func TestGetMetricHandler(t *testing.T) {
+ 		t.Fatalf("Failed to make request: %v", err)
+ 	}
+ 	defer resp.Body.Close()
+-
+ 	if resp.StatusCode != http.StatusOK {
+ 		t.Errorf("Expected 200, got %d", resp.StatusCode)
+ 	}
+@@ -39,7 +37,6 @@ func TestGetMetricHandler(t *testing.T) {
+ 		t.Fatalf("Failed to make request: %v", err)
+ 	}
+ 	defer resp.Body.Close()
+-
+ 	if resp.StatusCode != http.StatusNotFound {
+ 		t.Errorf("Expected 404, got %d", resp.StatusCode)
+ 	}
+@@ -47,28 +44,26 @@ func TestGetMetricHandler(t *testing.T) {
+ 
+ func TestUpdateJSONHandler(t *testing.T) {
+ 	storage := repository.NewMemStorage()
+-
+ 	r := chi.NewRouter()
+-	// Передаем пустую строку как ключ
+ 	r.Post("/update", UpdateJSONHandler(storage, ""))
+ 
+ 	ts := httptest.NewServer(r)
+ 	defer ts.Close()
+ 
+-	// Тест отправки gauge метрики
+ 	jsonData := `{"id":"testGauge","type":"gauge","value":42.5}`
+ 	resp, err := http.Post(ts.URL+"/update", "application/json", strings.NewReader(jsonData))
+ 	if err != nil {
+ 		t.Fatalf("Failed to make request: %v", err)
+ 	}
+ 	defer resp.Body.Close()
+-
+ 	if resp.StatusCode != http.StatusOK {
+ 		t.Errorf("Expected 200, got %d", resp.StatusCode)
+ 	}
+ 
+-	// Проверяем, что метрика сохранилась
+-	val, exists := storage.GetGauge("testGauge")
++	val, exists, err := storage.GetGauge("testGauge")
++	if err != nil {
++		t.Fatal(err)
++	}
+ 	if !exists {
+ 		t.Error("Metric was not saved")
+ 	}
+@@ -79,24 +74,21 @@ func TestUpdateJSONHandler(t *testing.T) {
+ 
+ func TestValueJSONHandler(t *testing.T) {
+ 	storage := repository.NewMemStorage()
+-	storage.UpdateGauge("testGauge", 42.5)
+-	storage.UpdateCounter("testCounter", 100)
++	_ = storage.UpdateGauge("testGauge", 42.5)
++	_ = storage.UpdateCounter("testCounter", 100)
+ 
+ 	r := chi.NewRouter()
+-	// Передаем пустую строку как ключ
+ 	r.Post("/value", ValueJSONHandler(storage, ""))
+ 
+ 	ts := httptest.NewServer(r)
+ 	defer ts.Close()
+ 
+-	// Тест получения gauge метрики
+ 	jsonData := `{"id":"testGauge","type":"gauge"}`
+ 	resp, err := http.Post(ts.URL+"/value", "application/json", strings.NewReader(jsonData))
+ 	if err != nil {
+ 		t.Fatalf("Failed to make request: %v", err)
+ 	}
+ 	defer resp.Body.Close()
+-
+ 	if resp.StatusCode != http.StatusOK {
+ 		t.Errorf("Expected 200, got %d", resp.StatusCode)
+ 	}
+@@ -106,16 +98,15 @@ func TestValueJSONHandler(t *testing.T) {
+ 	if err := dec.Decode(&result); err != nil {
+ 		t.Fatalf("Failed to decode response: %v", err)
+ 	}
+-
+ 	if *result.Value != 42.5 {
+ 		t.Errorf("Expected 42.5, got %f", *result.Value)
+ 	}
+ }
++
+ func TestUpdatesHandler(t *testing.T) {
+ 	storage := repository.NewMemStorage()
+ 	handler := UpdatesHandler(storage, "", nil)
+ 
+-	// создаём запрос с батчем
+ 	metrics := []models.Metrics{
+ 		{ID: "g1", MType: models.Gauge, Value: func() *float64 { v := 1.1; return &v }()},
+ 		{ID: "c1", MType: models.Counter, Delta: func() *int64 { v := int64(5); return &v }()},
+@@ -130,16 +121,25 @@ func TestUpdatesHandler(t *testing.T) {
+ 	if w.Code != http.StatusOK {
+ 		t.Errorf("Expected 200, got %d", w.Code)
+ 	}
+-	if val, ok := storage.GetGauge("g1"); !ok || val != 1.1 {
++	val, ok, err := storage.GetGauge("g1")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !ok || val != 1.1 {
+ 		t.Errorf("Gauge not updated: %v, %v", val, ok)
+ 	}
+-	if val, ok := storage.GetCounter("c1"); !ok || val != 5 {
+-		t.Errorf("Counter not updated: %v, %v", val, ok)
++	valC, okC, err := storage.GetCounter("c1")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !okC || valC != 5 {
++		t.Errorf("Counter not updated: %v, %v", valC, okC)
+ 	}
+ }
++
+ func TestIndexHTMLHandler(t *testing.T) {
+ 	storage := repository.NewMemStorage()
+-	storage.UpdateGauge("test", 1.23)
++	_ = storage.UpdateGauge("test", 1.23)
+ 	handler := IndexHTMLHandler(storage, "")
+ 
+ 	req := httptest.NewRequest("GET", "/", nil)
+diff --git a/internal/middleware/gzip.go b/internal/middleware/gzip.go
+index a2d57f0..73c114f 100644
+--- a/internal/middleware/gzip.go
++++ b/internal/middleware/gzip.go
+@@ -1,4 +1,4 @@
+-// internal/middleware/gzip.go
++// Package middleware provides HTTP middleware for compression, logging, and hashing.
+ package middleware
+ 
+ import (
+@@ -26,12 +26,12 @@ func GzipMiddleware(next http.Handler) http.Handler {
+ 				return
+ 			}
+ 			r.Body = gzReader
+-			defer gzReader.Close()
++			defer func() { _ = gzReader.Close() }() // исправлено: gzReader, не gzWriter
+ 		}
+ 
+ 		// Обертка для ответа с сжатием
+ 		gzWriter := gzip.NewWriter(w)
+-		defer gzWriter.Close()
++		defer func() { _ = gzWriter.Close() }()
+ 
+ 		// Установка заголовка Content-Encoding
+ 		w.Header().Set("Content-Encoding", "gzip")
+diff --git a/internal/middleware/hash.go b/internal/middleware/hash.go
+index b43e2dc..b75bd9a 100644
+--- a/internal/middleware/hash.go
++++ b/internal/middleware/hash.go
+@@ -102,7 +102,7 @@ func (hw *hashResponseWriter) Close() error {
+ 
+ 	// Записываем заголовки и тело
+ 	hw.ResponseWriter.Header().Set("Content-Length", strconv.Itoa(len(hw.body)))
+-	hw.ResponseWriter.Write(hw.body)
++	hw.Flush()
+ 
+ 	return nil
+ }
+diff --git a/internal/middleware/logging.go b/internal/middleware/logging.go
+index fb54269..1d14ed9 100644
+--- a/internal/middleware/logging.go
++++ b/internal/middleware/logging.go
+@@ -1,3 +1,4 @@
++// Package middleware provides HTTP middleware for compression, logging, and hashing.
+ package middleware
+ 
+ import (
+diff --git a/internal/model/metrics.go b/internal/model/metrics.go
+index e919020..483d8db 100644
+--- a/internal/model/metrics.go
++++ b/internal/model/metrics.go
+@@ -1,3 +1,4 @@
++// Package model contains data structures, that describe the main entities of the application's subject area
+ package model
+ 
+ const (
+diff --git a/internal/repository/filestorage.go b/internal/repository/filestorage.go
+index 84b374d..76486e8 100644
+--- a/internal/repository/filestorage.go
++++ b/internal/repository/filestorage.go
+@@ -71,7 +71,7 @@ func (s *FileStorage) loadFromFile() error {
+ 		}
+ 		return fmt.Errorf("failed to open file: %w", err)
+ 	}
+-	defer file.Close()
++	defer func() { _ = file.Close() }()
+ 
+ 	var metrics []models.Metrics
+ 	if err := json.NewDecoder(file).Decode(&metrics); err != nil {
+@@ -119,14 +119,14 @@ func (s *FileStorage) saveToFile() error {
+ 	if err != nil {
+ 		return fmt.Errorf("create temp file: %w", err)
+ 	}
+-	defer f.Close()
++	defer func() { _ = f.Close() }()
+ 
+ 	enc := json.NewEncoder(f)
+ 	enc.SetIndent("", " ")
+ 	if err := enc.Encode(metrics); err != nil {
+ 		return fmt.Errorf("encode metrics: %w", err)
+ 	}
+-	f.Close()
++	defer func() { _ = f.Close() }()
+ 
+ 	if err := os.Rename(tempFile, s.filePath); err != nil {
+ 		return fmt.Errorf("rename temp file: %w", err)
+@@ -165,11 +165,6 @@ func (s *FileStorage) SaveToFile() error {
+ 	return s.saveToFile()
+ }
+ 
+-// Close останавливает периодическое сохранение и выполняет финальную запись.
+-func (s *FileStorage) Close() {
+-	close(s.stopChan)
+-}
+-
+ // UpdateBatch обновляет несколько метрик за одну операцию.
+ func (s *FileStorage) UpdateBatch(metrics []models.Metrics) error {
+ 	// Используем метод MemStorage
+@@ -205,3 +200,27 @@ func (s *FileStorage) GetAllMetricsForSave() []models.Metrics {
+ 	}
+ 	return metrics
+ }
++func (s *FileStorage) UpdateGauge(name string, value float64) error {
++	return s.MemStorage.UpdateGauge(name, value)
++}
++
++func (s *FileStorage) UpdateCounter(name string, value int64) error {
++	return s.MemStorage.UpdateCounter(name, value)
++}
++
++func (s *FileStorage) GetGauge(name string) (float64, bool, error) {
++	return s.MemStorage.GetGauge(name)
++}
++
++func (s *FileStorage) GetCounter(name string) (int64, bool, error) {
++	return s.MemStorage.GetCounter(name)
++}
++
++func (s *FileStorage) GetAllMetrics() (string, error) {
++	return s.MemStorage.GetAllMetrics()
++}
++
++func (s *FileStorage) Close() error {
++	close(s.stopChan)
++	return nil
++}
+diff --git a/internal/repository/filestorage_test.go b/internal/repository/filestorage_test.go
+index e46cd49..ac046b5 100644
+--- a/internal/repository/filestorage_test.go
++++ b/internal/repository/filestorage_test.go
+@@ -23,8 +23,8 @@ func TestFileStorage_LoadSave(t *testing.T) {
+ 	}
+ 	defer fs.Close()
+ 
+-	fs.UpdateGauge("test", 123.45)
+-	fs.UpdateCounter("test_counter", 42)
++	_ = fs.UpdateGauge("test", 123.45)
++	_ = fs.UpdateCounter("test_counter", 42)
+ 	if err := fs.SaveToFile(); err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -35,13 +35,19 @@ func TestFileStorage_LoadSave(t *testing.T) {
+ 	}
+ 	defer fs2.Close()
+ 
+-	val, ok := fs2.GetGauge("test")
++	val, ok, err := fs2.GetGauge("test")
++	if err != nil {
++		t.Fatal(err)
++	}
+ 	if !ok || val != 123.45 {
+ 		t.Errorf("GetGauge after load = %v, %v; want 123.45, true", val, ok)
+ 	}
+-	valC, ok := fs2.GetCounter("test_counter")
+-	if !ok || valC != 42 {
+-		t.Errorf("GetCounter after load = %v, %v; want 42, true", valC, ok)
++	valC, okC, err := fs2.GetCounter("test_counter")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !okC || valC != 42 {
++		t.Errorf("GetCounter after load = %v, %v; want 42, true", valC, okC)
+ 	}
+ }
+ 
+@@ -69,11 +75,19 @@ func TestFileStorage_UpdateBatch(t *testing.T) {
+ 	if err := fs.UpdateBatch(metrics); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if val, ok := fs.GetGauge("g"); !ok || val != 1.23 {
++	val, ok, err := fs.GetGauge("g")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !ok || val != 1.23 {
+ 		t.Errorf("GetGauge = %v, %v; want 1.23, true", val, ok)
+ 	}
+-	if val, ok := fs.GetCounter("c"); !ok || val != 10 {
+-		t.Errorf("GetCounter = %v, %v; want 10, true", val, ok)
++	valC, okC, err := fs.GetCounter("c")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !okC || valC != 10 {
++		t.Errorf("GetCounter = %v, %v; want 10, true", valC, okC)
+ 	}
+ }
+ 
+@@ -83,25 +97,22 @@ func TestFileStorage_PeriodicSave(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	tmpName := tmpFile.Name()
+-	tmpFile.Close() // закрываем, чтобы при создании хранилища не было конфликта
++	tmpFile.Close()
+ 	defer os.Remove(tmpName)
+ 
+ 	fs, err := NewFileStorage(tmpName, 100*time.Millisecond, false)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	fs.UpdateGauge("test", 99.99)
++	_ = fs.UpdateGauge("test", 99.99)
+ 
+-	// Даём время на периодическое сохранение
+ 	time.Sleep(200 * time.Millisecond)
+ 
+-	// Явное сохранение и закрытие
+ 	if err := fs.SaveToFile(); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	fs.Close()
+ 
+-	// Ждём, пока горутина periodicSave завершится
+ 	time.Sleep(50 * time.Millisecond)
+ 
+ 	fs2, err := NewFileStorage(tmpName, 0, true)
+@@ -110,7 +121,10 @@ func TestFileStorage_PeriodicSave(t *testing.T) {
+ 	}
+ 	defer fs2.Close()
+ 
+-	val, ok := fs2.GetGauge("test")
++	val, ok, err := fs2.GetGauge("test")
++	if err != nil {
++		t.Fatal(err)
++	}
+ 	if !ok || val != 99.99 {
+ 		t.Errorf("Periodic save failed: got %v, %v", val, ok)
+ 	}
+diff --git a/internal/repository/memstorage.go b/internal/repository/memstorage.go
+index 99c85f1..4716365 100644
+--- a/internal/repository/memstorage.go
++++ b/internal/repository/memstorage.go
+@@ -25,37 +25,39 @@ func NewMemStorage() *MemStorage {
+ }
+ 
+ // UpdateGauge сохраняет gauge-значение.
+-func (s *MemStorage) UpdateGauge(name string, value float64) {
++func (s *MemStorage) UpdateGauge(name string, value float64) error {
+ 	s.mu.Lock()
+ 	defer s.mu.Unlock()
+ 	s.Gauges[name] = value
++	return nil
+ }
+ 
+ // UpdateCounter увеличивает счётчик на переданную дельту.
+-func (s *MemStorage) UpdateCounter(name string, value int64) {
++func (s *MemStorage) UpdateCounter(name string, value int64) error {
+ 	s.mu.Lock()
+ 	defer s.mu.Unlock()
+ 	s.Counters[name] += value
++	return nil
+ }
+ 
+ // GetGauge возвращает gauge-значение и булев флаг существования.
+-func (s *MemStorage) GetGauge(name string) (float64, bool) {
++func (s *MemStorage) GetGauge(name string) (float64, bool, error) {
+ 	s.mu.RLock()
+ 	defer s.mu.RUnlock()
+ 	val, ok := s.Gauges[name]
+-	return val, ok
++	return val, ok, nil
+ }
+ 
+ // GetCounter возвращает counter-значение и булев флаг существования.
+-func (s *MemStorage) GetCounter(name string) (int64, bool) {
++func (s *MemStorage) GetCounter(name string) (int64, bool, error) {
+ 	s.mu.RLock()
+ 	defer s.mu.RUnlock()
+ 	val, ok := s.Counters[name]
+-	return val, ok
++	return val, ok, nil
+ }
+ 
+ // GetAllMetrics возвращает строковое представление всех метрик.
+-func (s *MemStorage) GetAllMetrics() string {
++func (s *MemStorage) GetAllMetrics() (string, error) {
+ 	s.mu.RLock()
+ 	defer s.mu.RUnlock()
+ 	var sb strings.Builder
+@@ -67,7 +69,7 @@ func (s *MemStorage) GetAllMetrics() string {
+ 	for k, v := range s.Counters {
+ 		fmt.Fprintf(&sb, " %s: %d\n", k, v)
+ 	}
+-	return sb.String()
++	return sb.String(), nil
+ }
+ 
+ // UpdateBatch обновляет несколько метрик за одну операцию.
+@@ -97,4 +99,4 @@ func (s *MemStorage) UpdateBatch(metrics []models.Metrics) error {
+ // Пустые реализации интерфейса (FileStorage будет их переопределять)
+ func (s *MemStorage) SaveToFile() error   { return nil }
+ func (s *MemStorage) LoadFromFile() error { return nil }
+-func (s *MemStorage) Close()              {}
++func (s *MemStorage) Close() error        { return nil }
+diff --git a/internal/repository/memstorage_test.go b/internal/repository/memstorage_test.go
+index 0769587..eff33c0 100644
+--- a/internal/repository/memstorage_test.go
++++ b/internal/repository/memstorage_test.go
+@@ -9,48 +9,67 @@ import (
+ 
+ func TestMemStorage_UpdateGauge(t *testing.T) {
+ 	s := NewMemStorage()
+-	s.UpdateGauge("test", 42.5)
+-	if val, ok := s.GetGauge("test"); !ok || val != 42.5 {
++	_ = s.UpdateGauge("test", 42.5)
++	val, ok, err := s.GetGauge("test")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !ok || val != 42.5 {
+ 		t.Errorf("GetGauge() = %v, %v; want 42.5, true", val, ok)
+ 	}
+ }
+ 
+ func TestMemStorage_UpdateCounter(t *testing.T) {
+ 	s := NewMemStorage()
+-	s.UpdateCounter("test", 10)
+-	s.UpdateCounter("test", 5)
+-	if val, ok := s.GetCounter("test"); !ok || val != 15 {
++	_ = s.UpdateCounter("test", 10)
++	_ = s.UpdateCounter("test", 5)
++	val, ok, err := s.GetCounter("test")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !ok || val != 15 {
+ 		t.Errorf("GetCounter() = %v, %v; want 15, true", val, ok)
+ 	}
+ }
+ 
+ func TestMemStorage_GetGauge_NotFound(t *testing.T) {
+ 	s := NewMemStorage()
+-	if val, ok := s.GetGauge("missing"); ok || val != 0 {
++	val, ok, err := s.GetGauge("missing")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if ok || val != 0 {
+ 		t.Errorf("GetGauge() = %v, %v; want 0, false", val, ok)
+ 	}
+ }
+ 
+ func TestMemStorage_GetCounter_NotFound(t *testing.T) {
+ 	s := NewMemStorage()
+-	if val, ok := s.GetCounter("missing"); ok || val != 0 {
++	val, ok, err := s.GetCounter("missing")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if ok || val != 0 {
+ 		t.Errorf("GetCounter() = %v, %v; want 0, false", val, ok)
+ 	}
+ }
+ 
+ func TestMemStorage_GetAllMetrics(t *testing.T) {
+ 	s := NewMemStorage()
+-	s.UpdateGauge("g1", 1.1)
+-	s.UpdateGauge("g2", 2.2)
+-	s.UpdateCounter("c1", 10)
+-	output := s.GetAllMetrics()
+-	// Проверяем, что вывод содержит все ожидаемые строки
++	_ = s.UpdateGauge("g1", 1.1)
++	_ = s.UpdateGauge("g2", 2.2)
++	_ = s.UpdateCounter("c1", 10)
++	output, err := s.GetAllMetrics()
++	if err != nil {
++		t.Fatal(err)
++	}
+ 	if !strings.Contains(output, "g1: 1.100000") ||
+ 		!strings.Contains(output, "g2: 2.200000") ||
+ 		!strings.Contains(output, "c1: 10") {
+ 		t.Errorf("GetAllMetrics() output missing expected entries: %s", output)
+ 	}
+ }
++
+ func TestMemStorage_UpdateBatch(t *testing.T) {
+ 	s := NewMemStorage()
+ 	gVal := 3.14
+@@ -63,11 +82,19 @@ func TestMemStorage_UpdateBatch(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("UpdateBatch failed: %v", err)
+ 	}
+-	if val, ok := s.GetGauge("g1"); !ok || val != 3.14 {
++	val, ok, err := s.GetGauge("g1")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !ok || val != 3.14 {
+ 		t.Errorf("GetGauge('g1') = %v, %v; want 3.14, true", val, ok)
+ 	}
+-	if val, ok := s.GetCounter("c1"); !ok || val != 100 {
+-		t.Errorf("GetCounter('c1') = %v, %v; want 100, true", val, ok)
++	valC, okC, err := s.GetCounter("c1")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !okC || valC != 100 {
++		t.Errorf("GetCounter('c1') = %v, %v; want 100, true", valC, okC)
+ 	}
+ }
+ 
+diff --git a/internal/repository/pgstorage.go b/internal/repository/pgstorage.go
+index aadf96f..77ce189 100644
+--- a/internal/repository/pgstorage.go
++++ b/internal/repository/pgstorage.go
+@@ -110,13 +110,13 @@ func (s *PGStorage) executeInTransaction(ctx context.Context, fn func(tx *sql.Tx
+ 
+ 		defer func() {
+ 			if p := recover(); p != nil {
+-				tx.Rollback()
++				_ = tx.Rollback()
+ 				panic(p)
+ 			}
+ 		}()
+ 
+ 		if err := fn(tx); err != nil {
+-			tx.Rollback()
++			_ = tx.Rollback()
+ 			return err
+ 		}
+ 
+@@ -125,73 +125,68 @@ func (s *PGStorage) executeInTransaction(ctx context.Context, fn func(tx *sql.Tx
+ }
+ 
+ // UpdateGauge обновляет gauge-метрику в БД.
+-func (s *PGStorage) UpdateGauge(name string, value float64) {
++func (s *PGStorage) UpdateGauge(name string, value float64) error {
+ 	ctx := context.Background()
+-	s.executeWithRetry(ctx, func() error {
++	return s.executeWithRetry(ctx, func() error {
+ 		_, err := s.db.ExecContext(ctx, `
+-			INSERT INTO gauges (name, value)
+-			VALUES ($1, $2)
+-			ON CONFLICT (name)
+-			DO UPDATE SET value = $2
+-		`, name, value)
++            INSERT INTO gauges (name, value)
++            VALUES ($1, $2)
++            ON CONFLICT (name) DO UPDATE SET value = $2
++        `, name, value)
+ 		return err
+ 	})
+ }
+ 
+ // UpdateCounter обновляет counter-метрику в БД (инкремент).
+-func (s *PGStorage) UpdateCounter(name string, value int64) {
++func (s *PGStorage) UpdateCounter(name string, value int64) error {
+ 	ctx := context.Background()
+-	s.executeWithRetry(ctx, func() error {
++	return s.executeWithRetry(ctx, func() error {
+ 		_, err := s.db.ExecContext(ctx, `
+-			INSERT INTO counters (name, value)
+-			VALUES ($1, $2)
+-			ON CONFLICT (name)
+-			DO UPDATE SET value = counters.value + $2
+-		`, name, value)
++            INSERT INTO counters (name, value)
++            VALUES ($1, $2)
++            ON CONFLICT (name) DO UPDATE SET value = counters.value + $2
++        `, name, value)
+ 		return err
+ 	})
+ }
+ 
+ // GetGauge возвращает gauge-значение из БД.
+-func (s *PGStorage) GetGauge(name string) (float64, bool) {
++func (s *PGStorage) GetGauge(name string) (float64, bool, error) {
+ 	var value float64
+ 	ctx := context.Background()
+ 	err := s.executeWithRetry(ctx, func() error {
+ 		return s.db.QueryRowContext(ctx,
+ 			"SELECT value FROM gauges WHERE name = $1", name).Scan(&value)
+ 	})
+-
+ 	if err != nil {
+ 		if err == sql.ErrNoRows {
+-			return 0, false
++			return 0, false, nil
+ 		}
+-		return 0, false
++		return 0, false, err
+ 	}
+-	return value, true
++	return value, true, nil
+ }
+ 
+ // GetCounter возвращает counter-значение из БД.
+-func (s *PGStorage) GetCounter(name string) (int64, bool) {
++func (s *PGStorage) GetCounter(name string) (int64, bool, error) {
+ 	var value int64
+ 	ctx := context.Background()
+ 	err := s.executeWithRetry(ctx, func() error {
+ 		return s.db.QueryRowContext(ctx,
+ 			"SELECT value FROM counters WHERE name = $1", name).Scan(&value)
+ 	})
+-
+ 	if err != nil {
+ 		if err == sql.ErrNoRows {
+-			return 0, false
++			return 0, false, nil
+ 		}
+-		return 0, false
++		return 0, false, err
+ 	}
+-	return value, true
++	return value, true, nil
+ }
+ 
+ // GetAllMetrics возвращает строковое представление всех метрик из БД.
+-func (s *PGStorage) GetAllMetrics() string {
++func (s *PGStorage) GetAllMetrics() (string, error) {
+ 	var result string
+-
+ 	ctx := context.Background()
+ 	err := s.executeWithRetry(ctx, func() error {
+ 		rows, err := s.db.QueryContext(ctx, "SELECT name, value FROM gauges")
+@@ -200,7 +195,6 @@ func (s *PGStorage) GetAllMetrics() string {
+ 			return nil
+ 		}
+ 		defer rows.Close()
+-
+ 		result += "Gauges:\n"
+ 		for rows.Next() {
+ 			var name string
+@@ -220,7 +214,6 @@ func (s *PGStorage) GetAllMetrics() string {
+ 			return nil
+ 		}
+ 		defer rows.Close()
+-
+ 		result += "Counters:\n"
+ 		for rows.Next() {
+ 			var name string
+@@ -233,15 +226,12 @@ func (s *PGStorage) GetAllMetrics() string {
+ 		if err := rows.Err(); err != nil {
+ 			result += fmt.Sprintf("Error iterating counters: %v\n", err)
+ 		}
+-
+ 		return nil
+ 	})
+-
+ 	if err != nil {
+ 		result += fmt.Sprintf("Error executing query: %v\n", err)
+ 	}
+-
+-	return result
++	return result, nil
+ }
+ 
+ // UpdateBatch обновляет несколько метрик за одну транзакцию.
+@@ -276,6 +266,6 @@ func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
+ }
+ 
+ // Close закрывает соединение с БД.
+-func (s *PGStorage) Close() {
+-	s.db.Close()
++func (s *PGStorage) Close() error {
++	return s.db.Close()
+ }
+diff --git a/internal/repository/storage.go b/internal/repository/storage.go
+index c5f3ee7..89054ab 100644
+--- a/internal/repository/storage.go
++++ b/internal/repository/storage.go
+@@ -1,15 +1,16 @@
++// Package repository contains the code of application's repo
+ package repository
+ 
+ import models "github.com/eugegm01-dev/metrics/internal/model"
+ 
+ // Storage определяет интерфейс для хранилища метрик.
+ type Storage interface {
+-	UpdateGauge(name string, value float64)
+-	UpdateCounter(name string, value int64)
+-	GetGauge(name string) (float64, bool)
+-	GetCounter(name string) (int64, bool)
+-	GetAllMetrics() string
+-	Close()
++	UpdateGauge(name string, value float64) error
++	UpdateCounter(name string, value int64) error
++	GetGauge(name string) (float64, bool, error)
++	GetCounter(name string) (int64, bool, error)
++	GetAllMetrics() (string, error)
++	Close() error
+ }
+ 
+ // FileSaver – опциональный интерфейс для хранилищ, поддерживающих сохранение в файл.
+diff --git a/migrations/migrations b/migrations/migrations
+index 1416cfe..43f5497 100644
+--- a/migrations/migrations
++++ b/migrations/migrations
+@@ -1,2 +1,3 @@
++-- package migrtions contains migration
+ DROP TABLE IF EXISTS gauges;
+ DROP TABLE IF EXISTS counters;
+\ No newline at end of file
+diff --git a/migrations/migrations.go b/migrations/migrations.go
+index aa6f571..32a521e 100644
+--- a/migrations/migrations.go
++++ b/migrations/migrations.go
+@@ -1,3 +1,4 @@
++// Package repository contains database migration utilities.
+ package repository
+ 
+ import (

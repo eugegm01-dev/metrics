@@ -1,3 +1,4 @@
+// Package middleware provides HTTP middleware for compression, logging, and hashing.
 package middleware
 
 import (
@@ -32,7 +33,8 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	r.responseData.status = statusCode
 }
 
-// Middleware для логирования запросов и ответов
+// LoggingMiddleware логирует HTTP-запросы и ответы с помощью переданного логгера.
+// Логирует метод, путь, статус-код, длительность и размер ответа.
 func LoggingMiddleware(logger *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
