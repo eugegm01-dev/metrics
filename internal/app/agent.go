@@ -22,6 +22,12 @@ func RunAgent() error {
 	defer func() { _ = logger.Sync() }()
 
 	cfg, err := config.ParseAgentConfig()
+	if cfg.CryptoKey != "" {
+		if err := agent.InitAgentCrypto(cfg.CryptoKey); err != nil {
+			return fmt.Errorf("failed to init agent crypto: %w", err)
+		}
+		logger.Info("Agent crypto initialized", zap.String("key_path", cfg.CryptoKey))
+	}
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}

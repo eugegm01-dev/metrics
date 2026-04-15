@@ -22,6 +22,7 @@ type ServerConfig struct {
 	AuditFile       string // путь к файлу аудита
 	AuditURL        string // URL для отправки аудита
 	MigrationsDir   string // путь к миграциям
+	CryptoKey       string // путь к приватному ключу
 
 }
 
@@ -38,6 +39,7 @@ func ParseServerConfig() (*ServerConfig, error) {
 	var flagAuditFile string
 	var flagAuditURL string
 	var flagMigrationsDir string
+	var flagCryptoKey string
 
 	flag.StringVar(&flagDSN, "d", "", "PostgreSQL DSN")
 	flag.StringVar(&flagKey, "k", "", "ключ для проверки подписи")
@@ -48,6 +50,8 @@ func ParseServerConfig() (*ServerConfig, error) {
 	flag.StringVar(&flagRunAddr, "a", "localhost:8080", "адрес и порт для запуска сервера")
 	flag.IntVar(&flagStoreInterval, "i", 300, "интервал сохранения метрик на диск в секундах (0 - синхронная запись)")
 	flag.StringVar(&flagFileStoragePath, "f", "/tmp/metrics-db.json", "путь к файлу для сохранения метрик")
+	flag.StringVar(&flagCryptoKey, "crypto-key", "", "путь к файлу приватного ключа")
+
 	flag.BoolVar(&flagRestore, "r", true, "загружать сохранённые метрики при старте")
 
 	flag.Parse()
@@ -63,6 +67,7 @@ func ParseServerConfig() (*ServerConfig, error) {
 		AuditURL:        flagAuditURL,
 		MigrationsDir:   flagMigrationsDir,
 	}
+	cfg.CryptoKey = flagCryptoKey
 
 	// Приоритет: переменные окружения > флаги > дефолт
 
@@ -114,6 +119,9 @@ func ParseServerConfig() (*ServerConfig, error) {
 		} else {
 			cfg.Restore = val
 		}
+	}
+	if envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY"); ok && envCryptoKey != "" {
+		cfg.CryptoKey = envCryptoKey
 	}
 
 	return cfg, nil

@@ -1,8 +1,9 @@
-// Package app contains the main application logic for the agent and server.
+// internal/app/server.go
 package app
 
 import (
 	"context"
+	"crypto/rsa"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	crypto "github.com/eugegm01-dev/metrics/internal/crypto"
+	"github.com/eugegm01-dev/metrics/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -22,12 +25,10 @@ import (
 	"github.com/eugegm01-dev/metrics/internal/audit"
 	"github.com/eugegm01-dev/metrics/internal/config"
 	"github.com/eugegm01-dev/metrics/internal/handler"
-	"github.com/eugegm01-dev/metrics/internal/middleware"
 	"github.com/eugegm01-dev/metrics/internal/repository"
 )
 
 // RunServer запускает HTTP-сервер с конфигурацией из флагов и переменных окружения.
-// Инициализирует хранилище, базу данных (если настроена) и регистрирует все маршруты.
 func RunServer() error {
 	logger, err := zap.NewDevelopment()
 	if err != nil {
@@ -49,7 +50,6 @@ func RunServer() error {
 		zap.String("key", cfg.Key),
 	)
 
-	// 1️⃣ Инициализация БД
 	var db *sql.DB
 	if cfg.DatabaseDSN != "" {
 		db, err = initDB(cfg, logger)
@@ -58,15 +58,23 @@ func RunServer() error {
 		}
 		defer db.Close()
 	}
+	var privKey interface{}
+	if cfg.CryptoKey != "" {
+		var err error
+		k, err := crypto.LoadPrivateKey(cfg.CryptoKey)
+		if err != nil {
+			return fmt.Errorf("failed to load crypto key: %w", err)
+		}
+		privKey = k
+		logger.Info("Server crypto key loaded")
+	}
 
-	// 2️⃣ Инициализация хранилища
 	storage, err := initStorage(cfg, db, logger)
 	if err != nil {
 		return fmt.Errorf("failed to create storage: %w", err)
 	}
 	defer storage.Close()
 
-	// 3️⃣ Инициализация аудита
 	var auditSubject *audit.Subject
 	if cfg.AuditFile != "" || cfg.AuditURL != "" {
 		auditSubject = audit.NewSubject()
@@ -84,10 +92,8 @@ func RunServer() error {
 		}
 	}
 
-	// 4️⃣ Роутер
-	r := initRouter(storage, logger, cfg.Key, auditSubject)
+	r := initRouter(storage, logger, cfg.Key, auditSubject, privKey)
 
-	// 5️⃣ Сервер
 	srv := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      r,
@@ -96,10 +102,8 @@ func RunServer() error {
 		IdleTimeout:  30 * time.Second,
 	}
 
-	// 6️⃣ Запуск
 	err = runServer(srv, logger)
 
-	// 7️⃣ Закрытие аудита ПОСЛЕ остановки сервера
 	if auditSubject != nil {
 		_ = auditSubject.Close()
 	}
@@ -120,7 +124,6 @@ func initDB(cfg *config.ServerConfig, logger *zap.Logger) (*sql.DB, error) {
 	var db *sql.DB
 	var err error
 
-	// Используем retry-go
 	err = retry.Do(
 		func() error {
 			db, err = sql.Open("pgx", dsn)
@@ -161,14 +164,24 @@ func initStorage(cfg *config.ServerConfig, db *sql.DB, logger *zap.Logger) (repo
 	return repository.NewStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore, db)
 }
 
-func initRouter(storage repository.Storage, logger *zap.Logger, key string, auditSubject *audit.Subject) *chi.Mux {
+func initRouter(storage repository.Storage, logger *zap.Logger, key string, auditSubject *audit.Subject, privKey interface{}) *chi.Mux {
 	r := chi.NewRouter()
+
+	var rsaKey *rsa.PrivateKey
+	if privKey != nil {
+		var ok bool
+		rsaKey, ok = privKey.(*rsa.PrivateKey)
+		if !ok {
+			logger.Error("privKey is not *rsa.PrivateKey")
+		}
+	}
+	r.Use(middleware.CryptoMiddleware(rsaKey))
+
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(middleware.GzipMiddleware)
 	r.Use(middleware.LoggingMiddleware(logger))
 	r.Use(middleware.HashMiddleware(key))
 
-	// pprof endpoints
 	r.HandleFunc("/debug/pprof/", pprof.Index)
 	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
@@ -189,7 +202,6 @@ func initRouter(storage repository.Storage, logger *zap.Logger, key string, audi
 	r.Post("/value", handler.ValueJSONHandler(storage, key))
 	r.Post("/value/", handler.ValueJSONHandler(storage, key))
 
-	// ✅ Только ОДНА регистрация /updates с auditSubject
 	r.Post("/updates", handler.UpdatesHandler(storage, key, auditSubject))
 	r.Post("/updates/", handler.UpdatesHandler(storage, key, auditSubject))
 
