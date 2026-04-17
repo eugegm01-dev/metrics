@@ -2,17 +2,21 @@ package repository
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
 )
 
+// MemStorage – in-memory реализация Storage.
+// Потокобезопасна.
 type MemStorage struct {
 	mu       sync.RWMutex
 	Gauges   map[string]float64
 	Counters map[string]int64
 }
 
+// NewMemStorage создаёт новый экземпляр MemStorage.
 func NewMemStorage() *MemStorage {
 	return &MemStorage{
 		Gauges:   make(map[string]float64),
@@ -20,47 +24,55 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (s *MemStorage) UpdateGauge(name string, value float64) {
+// UpdateGauge сохраняет gauge-значение.
+func (s *MemStorage) UpdateGauge(name string, value float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Gauges[name] = value
+	return nil
 }
 
-func (s *MemStorage) UpdateCounter(name string, value int64) {
+// UpdateCounter увеличивает счётчик на переданную дельту.
+func (s *MemStorage) UpdateCounter(name string, value int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Counters[name] += value
+	return nil
 }
 
-func (s *MemStorage) GetGauge(name string) (float64, bool) {
+// GetGauge возвращает gauge-значение и булев флаг существования.
+func (s *MemStorage) GetGauge(name string) (float64, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	val, ok := s.Gauges[name]
-	return val, ok
+	return val, ok, nil
 }
 
-func (s *MemStorage) GetCounter(name string) (int64, bool) {
+// GetCounter возвращает counter-значение и булев флаг существования.
+func (s *MemStorage) GetCounter(name string) (int64, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	val, ok := s.Counters[name]
-	return val, ok
+	return val, ok, nil
 }
 
-func (s *MemStorage) GetAllMetrics() string {
+// GetAllMetrics возвращает строковое представление всех метрик.
+func (s *MemStorage) GetAllMetrics() (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var result string
-	result += "Gauges:\n"
+	var sb strings.Builder
+	sb.WriteString("Gauges:\n")
 	for k, v := range s.Gauges {
-		result += fmt.Sprintf(" %s: %f\n", k, v)
+		fmt.Fprintf(&sb, " %s: %f\n", k, v)
 	}
-	result += "Counters:\n"
+	sb.WriteString("Counters:\n")
 	for k, v := range s.Counters {
-		result += fmt.Sprintf(" %s: %d\n", k, v)
+		fmt.Fprintf(&sb, " %s: %d\n", k, v)
 	}
-	return result
+	return sb.String(), nil
 }
 
+// UpdateBatch обновляет несколько метрик за одну операцию.
 func (s *MemStorage) UpdateBatch(metrics []models.Metrics) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -87,4 +99,4 @@ func (s *MemStorage) UpdateBatch(metrics []models.Metrics) error {
 // Пустые реализации интерфейса (FileStorage будет их переопределять)
 func (s *MemStorage) SaveToFile() error   { return nil }
 func (s *MemStorage) LoadFromFile() error { return nil }
-func (s *MemStorage) Close()              {}
+func (s *MemStorage) Close() error        { return nil }
