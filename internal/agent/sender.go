@@ -213,3 +213,70 @@ func InitAgentCrypto(path string) error {
 	publicKey, err = crypto.LoadPublicKey(path)
 	return err
 }
+func SendMetricsBatchWithContext(ctx context.Context, serverAddr string, metrics []models.Metrics, key string) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	jsonData, err := json.Marshal(metrics)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metrics: %w", err)
+	}
+
+	gzData, err := gzipData(jsonData)
+	if err != nil {
+		return fmt.Errorf("failed to gzip data: %w", err)
+	}
+
+	fullURL, err := url.JoinPath("http://"+serverAddr, "/updates")
+	if err != nil {
+		return fmt.Errorf("failed to build URL: %w", err)
+	}
+
+	var finalBody []byte
+	var isEncrypted bool
+	if publicKey != nil {
+		encData, err := crypto.Encrypt(gzData, publicKey)
+		if err != nil {
+			return fmt.Errorf("encrypt payload: %w", err)
+		}
+		finalBody = encData
+		isEncrypted = true
+	} else {
+		finalBody = gzData
+	}
+
+	req, err := retryablehttp.NewRequest("POST", fullURL, bytes.NewBuffer(finalBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if isEncrypted {
+		req.Header.Set("X-Crypto-Encrypted", "true")
+		req.Header.Set("Content-Type", "application/octet-stream")
+	} else {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "gzip")
+	}
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	hash := computeHash(jsonData, key)
+	if hash != "" {
+		req.Header.Set("HashSHA256", hash)
+	}
+
+	// Use provided context
+	req = req.WithContext(ctx)
+
+	resp, err := retryClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request after retries: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned status: %d", resp.StatusCode)
+	}
+
+	return nil
+}
