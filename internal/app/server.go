@@ -133,6 +133,7 @@ func RunServer() error {
 	return server.runWithGracefulShutdown()
 }
 
+//nolint:unused // kept for future shutdown improvements
 func (s *Server) runWithGracefulShutdown() error {
 	// Channel to listen for errors from ListenAndServe
 	serverErrors := make(chan error, 1)

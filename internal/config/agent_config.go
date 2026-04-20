@@ -15,9 +15,8 @@ type AgentConfig struct {
 	PollInterval   time.Duration
 	ReportInterval time.Duration
 	RateLimit      int
-	Key            string // поле для ключа
-	CryptoKey      string // путь к публичному ключу
-
+	Key            string
+	CryptoKey      string
 }
 
 // ParseAgentConfig читает конфигурацию агента из флагов командной строки и переменных окружения.
@@ -103,12 +102,22 @@ func ParseAgentConfig() (*AgentConfig, error) {
 	}
 
 	// Флаги (высший приоритет)
-	cfg.ServerAddr = flagServerAddr
-	cfg.PollInterval = time.Duration(flagPollInterval) * time.Second
-	cfg.ReportInterval = time.Duration(flagReportInterval) * time.Second
-	cfg.RateLimit = flagRateLimit
-	cfg.Key = flagKey
-	cfg.CryptoKey = flagCryptoKey
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "a":
+			cfg.ServerAddr = flagServerAddr
+		case "p":
+			cfg.PollInterval = time.Duration(flagPollInterval) * time.Second
+		case "r":
+			cfg.ReportInterval = time.Duration(flagReportInterval) * time.Second
+		case "l":
+			cfg.RateLimit = flagRateLimit
+		case "k":
+			cfg.Key = flagKey
+		case "crypto-key":
+			cfg.CryptoKey = flagCryptoKey
+		}
+	})
 
 	return cfg, nil
 }

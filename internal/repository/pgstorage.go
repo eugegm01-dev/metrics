@@ -6,8 +6,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"runtime"
 	"time"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
@@ -16,6 +14,7 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
+//go:embed../../migrations/*.sql
 var migrationFiles embed.FS
 
 // PGStorage – реализация Storage с использованием PostgreSQL.
@@ -29,17 +28,12 @@ func NewPGStorage(db *sql.DB) (*PGStorage, error) {
 		return nil, fmt.Errorf("database connection is nil")
 	}
 
-	// Определяем путь к миграциям
-	_, filename, _, _ := runtime.Caller(0)
-	currentDir := filepath.Dir(filename)
-	migrationsDir := filepath.Join(currentDir, "../../migrations")
-
-	goose.SetBaseFS(migrationFiles) // если используете embed
+	goose.SetBaseFS(migrationFiles)
 	if err := goose.SetDialect("postgres"); err != nil {
 		return nil, fmt.Errorf("goose set dialect: %w", err)
 	}
-
-	if err := goose.Up(db, migrationsDir); err != nil {
+	// Вызываем Up с пустой строкой, goose будет искать миграции во встроенной ФС
+	if err := goose.Up(db, "."); err != nil {
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
 

@@ -40,7 +40,6 @@ func RunAgent() error {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// Initialize crypto
 	if cfg.CryptoKey != "" {
 		if err := agent.InitAgentCrypto(cfg.CryptoKey); err != nil {
 			return fmt.Errorf("failed to init agent crypto: %w", err)
@@ -55,52 +54,132 @@ func RunAgent() error {
 		zap.Int("rate_limit", cfg.RateLimit),
 	)
 
-	// Create agent instance
 	agentInstance := agent.NewAgent(cfg.RateLimit)
 
-	// Create agent wrapper
-	a := &Agent{
-		instance:       agentInstance,
-		cfg:            cfg,
-		logger:         logger,
-		shutdownChan:   make(chan struct{}),
-		metricsChan:    make(chan []agent.Metric, 100),
-		workerDoneChan: make(chan struct{}),
-	}
+	// Канал для метрик
+	metricsChan := make(chan []agent.Metric, 100)
 
-	return a.runWithGracefulShutdown()
+	// Запускаем воркеры агента (они будут обрабатывать метрики и отправлять)
+	agentInstance.StartWorkers(func(metrics []agent.Metric) {
+		select {
+		case metricsChan <- metrics:
+		default:
+			logger.Warn("Metrics channel full, dropping batch")
+		}
+	})
+
+	// Горутина для отправки метрик из канала
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		for {
+			select {
+			case metrics := <-metricsChan:
+				sendMetricsBatch(ctx, agentInstance, cfg, metrics, logger)
+			case <-ctx.Done():
+				// Дренируем канал перед выходом
+				for {
+					select {
+					case metrics := <-metricsChan:
+						sendMetricsBatch(context.Background(), agentInstance, cfg, metrics, logger)
+					default:
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	// Горутина сбора runtime метрик
+	go func() {
+		ticker := time.NewTicker(cfg.PollInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				metrics := agentInstance.CollectRuntimeMetrics()
+				agentInstance.SendMetrics(metrics)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Горутина сбора системных метрик
+	go func() {
+		ticker := time.NewTicker(cfg.PollInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				metrics := agentInstance.CollectSystemMetrics()
+				if len(metrics) > 0 {
+					agentInstance.SendMetrics(metrics)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Ожидание сигнала завершения
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	<-sigChan
+
+	logger.Info("Shutdown signal received, stopping agent...")
+	cancel() // сигнализируем горутинам остановиться
+
+	// Даем время на отправку оставшихся метрик
+	time.Sleep(2 * time.Second)
+
+	agentInstance.StopWorkers()
+	close(metricsChan)
+
+	logger.Info("Agent shutdown completed")
+	return nil
 }
 
 // runWithGracefulShutdown запускает агент с корректной обработкой сигналов
 func (a *Agent) runWithGracefulShutdown() error {
-	// Start workers
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer cancel()
+
+	a.shutdownChan = make(chan struct{})
+	a.workerDoneChan = make(chan struct{})
+
+	// Start workers with proper processing function
 	a.instance.StartWorkers(func(metrics []agent.Metric) {
 		select {
 		case a.metricsChan <- metrics:
-			// Metrics queued for sending
 		default:
 			a.logger.Warn("Metrics channel full, dropping batch")
 		}
 	})
 
-	// Start sender goroutine
-	go a.sendMetricsLoop()
-
-	// Start metric collection goroutines
 	go a.collectRuntimeMetricsLoop()
 	go a.collectSystemMetricsLoop()
 
-	// Listen for shutdown signals
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	<-ctx.Done()
+	a.logger.Info("Shutdown signal received, draining metrics...")
 
-	// Block until shutdown signal
-	sig := <-shutdown
-	a.logger.Info("Shutdown signal received",
-		zap.String("signal", sig.String()),
-		zap.String("description", getAgentSignalDescription(sig)))
+	close(a.shutdownChan)
 
-	return a.gracefulShutdown()
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer drainCancel()
+
+	select {
+	case <-a.workerDoneChan:
+	case <-drainCtx.Done():
+		a.logger.Warn("Drain timeout, forcing stop")
+	}
+
+	a.instance.StopWorkers()
+	close(a.metricsChan)
+
+	a.logger.Info("Agent shutdown completed")
+	return nil
 }
 
 // sendMetricsLoop continuously sends metrics from the channel
@@ -113,7 +192,7 @@ func (a *Agent) sendMetricsLoop() {
 			if !ok {
 				return
 			}
-			a.sendMetricsBatch(metrics)
+			sendMetricsBatch(context.Background(), a.instance, a.cfg, metrics, a.logger)
 		case <-a.shutdownChan:
 			// Drain channel before shutdown
 			a.drainAndSendMetrics()
@@ -151,20 +230,17 @@ func (a *Agent) drainAndSendMetrics() {
 send:
 	if len(allMetrics) > 0 {
 		a.logger.Info("Sending final metrics batch", zap.Int("count", len(allMetrics)))
-		a.sendMetricsBatch(allMetrics)
+		sendMetricsBatch(context.Background(), a.instance, a.cfg, allMetrics, a.logger)
 	}
 }
 
 // sendMetricsBatch sends a batch of metrics with retry
-func (a *Agent) sendMetricsBatch(metrics []agent.Metric) {
+func sendMetricsBatch(ctx context.Context, agentInstance *agent.Agent, cfg *config.AgentConfig, metrics []agent.Metric, logger *zap.Logger) {
 	if len(metrics) == 0 {
 		return
 	}
-
-	// Prepare metrics
-	prepared := a.instance.PrepareMetricsForSend(metrics)
+	prepared := agentInstance.PrepareMetricsForSend(metrics)
 	var modelMetrics []model.Metrics
-
 	for _, m := range prepared {
 		metric := model.Metrics{
 			ID:    m.ID,
@@ -181,16 +257,12 @@ func (a *Agent) sendMetricsBatch(metrics []agent.Metric) {
 		modelMetrics = append(modelMetrics, metric)
 	}
 
-	// Send with retry
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	if err := agent.SendMetricsBatchWithContext(ctx, a.cfg.ServerAddr, modelMetrics, a.cfg.Key); err != nil {
-		a.logger.Error("Failed to send metrics batch",
+	if err := agent.SendMetricsBatchWithContext(ctx, cfg.ServerAddr, modelMetrics, cfg.Key); err != nil {
+		logger.Error("Failed to send metrics batch",
 			zap.Int("count", len(modelMetrics)),
 			zap.Error(err))
 	} else {
-		a.logger.Debug("Metrics batch sent successfully", zap.Int("count", len(modelMetrics)))
+		logger.Debug("Metrics batch sent successfully", zap.Int("count", len(modelMetrics)))
 	}
 }
 
@@ -198,7 +270,6 @@ func (a *Agent) sendMetricsBatch(metrics []agent.Metric) {
 func (a *Agent) collectRuntimeMetricsLoop() {
 	ticker := time.NewTicker(a.cfg.PollInterval)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ticker.C:
@@ -210,11 +281,9 @@ func (a *Agent) collectRuntimeMetricsLoop() {
 	}
 }
 
-// collectSystemMetricsLoop collects system metrics periodically
 func (a *Agent) collectSystemMetricsLoop() {
 	ticker := time.NewTicker(a.cfg.PollInterval)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ticker.C:

@@ -135,16 +135,30 @@ func ParseServerConfig() (*ServerConfig, error) {
 	}
 
 	// 4. Флаги командной строки (высший приоритет)
-	cfg.Addr = flagRunAddr
-	cfg.StoreInterval = time.Duration(flagStoreInterval) * time.Second
-	cfg.FileStoragePath = flagFileStoragePath
-	cfg.Restore = flagRestore
-	cfg.DatabaseDSN = flagDSN
-	cfg.Key = flagKey
-	cfg.AuditFile = flagAuditFile
-	cfg.AuditURL = flagAuditURL
-	cfg.MigrationsDir = flagMigrationsDir
-	cfg.CryptoKey = flagCryptoKey
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "a":
+			cfg.Addr = flagRunAddr
+		case "i":
+			cfg.StoreInterval = time.Duration(flagStoreInterval) * time.Second
+		case "f":
+			cfg.FileStoragePath = flagFileStoragePath
+		case "r":
+			cfg.Restore = flagRestore
+		case "d":
+			cfg.DatabaseDSN = flagDSN
+		case "k":
+			cfg.Key = flagKey
+		case "audit-file":
+			cfg.AuditFile = flagAuditFile
+		case "audit-url":
+			cfg.AuditURL = flagAuditURL
+		case "migrations-dir":
+			cfg.MigrationsDir = flagMigrationsDir
+		case "crypto-key":
+			cfg.CryptoKey = flagCryptoKey
+		}
+	})
 
 	return cfg, nil
 }
