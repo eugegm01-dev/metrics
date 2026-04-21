@@ -1,8 +1,10 @@
+// Package repository содержит реализации хранилищ метрик: в памяти, в файле и в PostgreSQL.
 package repository
 
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
 	"time"
@@ -13,24 +15,42 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
+//go:embed../../migrations/*.sql
+var migrationFiles embed.FS
+
+// PGStorage – реализация интерфейса Storage с использованием PostgreSQL в качестве хранилища.
+// Поддерживает автоматические миграции через goose и повторные попытки (retry) для устойчивости
+// к временным сбоям соединения с базой данных.
 type PGStorage struct {
 	db *sql.DB
 }
 
+// NewPGStorage создаёт новый экземпляр PGStorage и применяет миграции базы данных.
+// Миграции встроены в бинарный файл с помощью embed.FS, что позволяет распространять
+// сервер без необходимости хранить SQL-файлы отдельно.
+// В качестве аргумента принимает открытое соединение с базой данных *sql.DB.
+// Возвращает ошибку, если соединение равно nil или не удалось применить миграции.
 func NewPGStorage(db *sql.DB) (*PGStorage, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
 
-	// Goose теперь работает с директорией миграций
-	if err := goose.Up(db, "migrations"); err != nil {
+	goose.SetBaseFS(migrationFiles)
+	if err := goose.SetDialect("postgres"); err != nil {
+		return nil, fmt.Errorf("goose set dialect: %w", err)
+	}
+	// Вызываем Up с пустой строкой – goose будет искать миграции во встроенной ФС.
+	if err := goose.Up(db, "."); err != nil {
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
 	return &PGStorage{db: db}, nil
 }
 
-// executeWithRetry выполняет операцию с ретраями для retryable ошибок
+// executeWithRetry выполняет переданную операцию с повторными попытками в случае
+// возникновения retryable ошибок (например, временная потеря соединения с БД).
+// Между попытками используются фиксированные задержки: 1, 3 и 5 секунд.
+// Если контекст отменён, выполнение прерывается и возвращается ошибка контекста.
 func (s *PGStorage) executeWithRetry(ctx context.Context, operation func() error) error {
 	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 
@@ -65,7 +85,9 @@ func (s *PGStorage) executeWithRetry(ctx context.Context, operation func() error
 	return fmt.Errorf("operation failed after %d retries", len(delays))
 }
 
-// isRetryableError проверяет, является ли ошибка PostgreSQL retryable
+// isRetryableError проверяет, является ли ошибка PostgreSQL retryable.
+// Retryable считаются ошибки классов 08 (соединение), 40 (откат транзакции),
+// 53 (недостаточно ресурсов) и 57 (ошибка оператора).
 func isRetryableError(err error) bool {
 	var pgErr *pgconn.PgError
 	if ok := errors.As(err, &pgErr); ok {
@@ -84,7 +106,9 @@ func isRetryableError(err error) bool {
 	return false
 }
 
-// executeInTransaction выполняет функцию в транзакции с ретраями
+// executeInTransaction выполняет функцию fn в рамках транзакции с автоматическими
+// повторными попытками при retryable ошибках. При возникновении паники внутри fn
+// транзакция откатывается, после чего паника пробрасывается дальше.
 func (s *PGStorage) executeInTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	return s.executeWithRetry(ctx, func() error {
 		tx, err := s.db.BeginTx(ctx, nil)
@@ -94,13 +118,13 @@ func (s *PGStorage) executeInTransaction(ctx context.Context, fn func(tx *sql.Tx
 
 		defer func() {
 			if p := recover(); p != nil {
-				tx.Rollback()
+				_ = tx.Rollback()
 				panic(p)
 			}
 		}()
 
 		if err := fn(tx); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return err
 		}
 
@@ -108,69 +132,73 @@ func (s *PGStorage) executeInTransaction(ctx context.Context, fn func(tx *sql.Tx
 	})
 }
 
-func (s *PGStorage) UpdateGauge(name string, value float64) {
+// UpdateGauge обновляет (или вставляет) gauge-метрику в таблице gauges.
+func (s *PGStorage) UpdateGauge(name string, value float64) error {
 	ctx := context.Background()
-	s.executeWithRetry(ctx, func() error {
+	return s.executeWithRetry(ctx, func() error {
 		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO gauges (name, value)
-			VALUES ($1, $2)
-			ON CONFLICT (name)
-			DO UPDATE SET value = $2
-		`, name, value)
+            INSERT INTO gauges (name, value)
+            VALUES ($1, $2)
+            ON CONFLICT (name) DO UPDATE SET value = $2
+        `, name, value)
 		return err
 	})
 }
 
-func (s *PGStorage) UpdateCounter(name string, value int64) {
+// UpdateCounter обновляет counter-метрику, увеличивая её значение на переданную дельту.
+// Если метрика отсутствует, она создаётся с начальным значением value.
+func (s *PGStorage) UpdateCounter(name string, value int64) error {
 	ctx := context.Background()
-	s.executeWithRetry(ctx, func() error {
+	return s.executeWithRetry(ctx, func() error {
 		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO counters (name, value)
-			VALUES ($1, $2)
-			ON CONFLICT (name)
-			DO UPDATE SET value = counters.value + $2
-		`, name, value)
+            INSERT INTO counters (name, value)
+            VALUES ($1, $2)
+            ON CONFLICT (name) DO UPDATE SET value = counters.value + $2
+        `, name, value)
 		return err
 	})
 }
 
-func (s *PGStorage) GetGauge(name string) (float64, bool) {
+// GetGauge возвращает текущее значение gauge-метрики и флаг её существования.
+// Если метрика не найдена, возвращается (0, false, nil).
+func (s *PGStorage) GetGauge(name string) (float64, bool, error) {
 	var value float64
 	ctx := context.Background()
 	err := s.executeWithRetry(ctx, func() error {
 		return s.db.QueryRowContext(ctx,
 			"SELECT value FROM gauges WHERE name = $1", name).Scan(&value)
 	})
-
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return 0, false
+			return 0, false, nil
 		}
-		return 0, false
+		return 0, false, err
 	}
-	return value, true
+	return value, true, nil
 }
 
-func (s *PGStorage) GetCounter(name string) (int64, bool) {
+// GetCounter возвращает текущее значение counter-метрики и флаг её существования.
+// Если метрика не найдена, возвращается (0, false, nil).
+func (s *PGStorage) GetCounter(name string) (int64, bool, error) {
 	var value int64
 	ctx := context.Background()
 	err := s.executeWithRetry(ctx, func() error {
 		return s.db.QueryRowContext(ctx,
 			"SELECT value FROM counters WHERE name = $1", name).Scan(&value)
 	})
-
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return 0, false
+			return 0, false, nil
 		}
-		return 0, false
+		return 0, false, err
 	}
-	return value, true
+	return value, true, nil
 }
 
-func (s *PGStorage) GetAllMetrics() string {
+// GetAllMetrics возвращает строковое представление всех метрик, хранящихся в БД,
+// в удобочитаемом формате.
+func (s *PGStorage) GetAllMetrics() (string, error) {
 	var result string
-
 	ctx := context.Background()
 	err := s.executeWithRetry(ctx, func() error {
 		rows, err := s.db.QueryContext(ctx, "SELECT name, value FROM gauges")
@@ -179,7 +207,6 @@ func (s *PGStorage) GetAllMetrics() string {
 			return nil
 		}
 		defer rows.Close()
-
 		result += "Gauges:\n"
 		for rows.Next() {
 			var name string
@@ -199,7 +226,6 @@ func (s *PGStorage) GetAllMetrics() string {
 			return nil
 		}
 		defer rows.Close()
-
 		result += "Counters:\n"
 		for rows.Next() {
 			var name string
@@ -212,17 +238,16 @@ func (s *PGStorage) GetAllMetrics() string {
 		if err := rows.Err(); err != nil {
 			result += fmt.Sprintf("Error iterating counters: %v\n", err)
 		}
-
 		return nil
 	})
-
 	if err != nil {
 		result += fmt.Sprintf("Error executing query: %v\n", err)
 	}
-
-	return result
+	return result, nil
 }
 
+// UpdateBatch обновляет несколько метрик в рамках одной транзакции, что повышает
+// производительность при пакетной отправке данных агентом.
 func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
 	ctx := context.Background()
 	return s.executeInTransaction(ctx, func(tx *sql.Tx) error {
@@ -253,6 +278,7 @@ func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
 	})
 }
 
-func (s *PGStorage) Close() {
-	s.db.Close()
+// Close закрывает соединение с базой данных.
+func (s *PGStorage) Close() error {
+	return s.db.Close()
 }

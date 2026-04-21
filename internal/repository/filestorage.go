@@ -8,9 +8,11 @@ import (
 	"time"
 
 	models "github.com/eugegm01-dev/metrics/internal/model"
+	"go.uber.org/zap"
 )
 
-// FileStorage — обёртка над MemStorage с сохранением в файл
+// FileStorage оборачивает MemStorage и сохраняет метрики в файл.
+// Может сохранять периодически или по требованию.
 type FileStorage struct {
 	*MemStorage   // встроенное поле — делегируем все операции с данными
 	filePath      string
@@ -20,7 +22,10 @@ type FileStorage struct {
 	lastSaved     time.Time
 }
 
-// NewFileStorage создаёт файловое хранилище
+// NewFileStorage создаёт новый FileStorage.
+// Если filePath пуст, используется временный файл.
+// storeInterval – интервал периодического сохранения (0 – только по требованию).
+// restore – загружать ли данные из файла при запуске.
 func NewFileStorage(filePath string, storeInterval time.Duration, restore bool) (*FileStorage, error) {
 	mem := NewMemStorage()
 	// Если путь пустой или не указан, используем временную директорию
@@ -37,13 +42,15 @@ func NewFileStorage(filePath string, storeInterval time.Duration, restore bool) 
 		stopChan:      make(chan struct{}),
 		lastSaved:     time.Now(),
 	}
-
 	// Одноразовая загрузка при старте
 	if restore {
 		if err := storage.loadFromFile(); err != nil {
-			_ = err // игнорируем ошибку при загрузке
+			zap.L().Warn("Failed to load metrics from file",
+				zap.String("path", filePath),
+				zap.Error(err))
 		}
 	}
+
 	// Периодическое сохранение
 	if storeInterval > 0 {
 		go storage.periodicSave()
@@ -64,7 +71,7 @@ func (s *FileStorage) loadFromFile() error {
 		}
 		return fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var metrics []models.Metrics
 	if err := json.NewDecoder(file).Decode(&metrics); err != nil {
@@ -112,14 +119,14 @@ func (s *FileStorage) saveToFile() error {
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", " ")
 	if err := enc.Encode(metrics); err != nil {
 		return fmt.Errorf("encode metrics: %w", err)
 	}
-	f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := os.Rename(tempFile, s.filePath); err != nil {
 		return fmt.Errorf("rename temp file: %w", err)
@@ -153,15 +160,12 @@ func (s *FileStorage) periodicSave() {
 	}
 }
 
-// SaveToFile — публичный метод (для metricstest и эндпоинта /save)
+// SaveToFile сохраняет текущие метрики в файл.
 func (s *FileStorage) SaveToFile() error {
 	return s.saveToFile()
 }
 
-// Close — завершает работу с финальным сохранением
-func (s *FileStorage) Close() {
-	close(s.stopChan)
-}
+// UpdateBatch обновляет несколько метрик за одну операцию.
 func (s *FileStorage) UpdateBatch(metrics []models.Metrics) error {
 	// Используем метод MemStorage
 	if err := s.MemStorage.UpdateBatch(metrics); err != nil {
@@ -195,4 +199,28 @@ func (s *FileStorage) GetAllMetricsForSave() []models.Metrics {
 		})
 	}
 	return metrics
+}
+func (s *FileStorage) UpdateGauge(name string, value float64) error {
+	return s.MemStorage.UpdateGauge(name, value)
+}
+
+func (s *FileStorage) UpdateCounter(name string, value int64) error {
+	return s.MemStorage.UpdateCounter(name, value)
+}
+
+func (s *FileStorage) GetGauge(name string) (float64, bool, error) {
+	return s.MemStorage.GetGauge(name)
+}
+
+func (s *FileStorage) GetCounter(name string) (int64, bool, error) {
+	return s.MemStorage.GetCounter(name)
+}
+
+func (s *FileStorage) GetAllMetrics() (string, error) {
+	return s.MemStorage.GetAllMetrics()
+}
+
+func (s *FileStorage) Close() error {
+	close(s.stopChan)
+	return nil
 }
