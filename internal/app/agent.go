@@ -1,4 +1,4 @@
-// Package app contains the main application logic for the agent and server.
+// Package app содержит основную логику запуска и graceful shutdown агента и сервера.
 package app
 
 import (
@@ -16,18 +16,10 @@ import (
 	"github.com/eugegm01-dev/metrics/internal/model"
 )
 
-// Agent encapsulates the metrics agent with graceful shutdown
-type Agent struct {
-	instance       *agent.Agent
-	cfg            *config.AgentConfig
-	logger         *zap.Logger
-	shutdownChan   chan struct{}
-	metricsChan    chan []agent.Metric
-	workerDoneChan chan struct{}
-}
-
-// RunAgent запускает агент с конфигурацией из флагов и переменных окружения.
-// Периодически собирает и отправляет метрики на сервер.
+// RunAgent – точка входа для агента. Загружает конфигурацию, инициализирует
+// шифрование (если задан ключ), запускает сбор метрик и их отправку на сервер.
+// При получении сигнала SIGINT/SIGTERM/SIGQUIT агент корректно завершает работу,
+// отправляя оставшиеся в канале метрики.
 func RunAgent() error {
 	logger, err := zap.NewDevelopment(zap.AddStacktrace(zap.FatalLevel))
 	if err != nil {
@@ -56,10 +48,13 @@ func RunAgent() error {
 
 	agentInstance := agent.NewAgent(cfg.RateLimit)
 
-	// Канал для метрик
+	// Канал для передачи метрик от сборщиков к отправителю.
+	// Буферизация позволяет избежать блокировок при пиковых нагрузках.
 	metricsChan := make(chan []agent.Metric, 100)
 
-	// Запускаем воркеры агента (они будут обрабатывать метрики и отправлять)
+	// Запускаем воркеры агента. Они будут асинхронно отправлять метрики.
+	// Внутренняя реализация agent.StartWorkers запускает rateLimit горутин,
+	// которые читают из внутреннего канала агента и вызывают переданную функцию.
 	agentInstance.StartWorkers(func(metrics []agent.Metric) {
 		select {
 		case metricsChan <- metrics:
@@ -68,7 +63,8 @@ func RunAgent() error {
 		}
 	})
 
-	// Горутина для отправки метрик из канала
+	// Горутина для отправки метрик из канала.
+	// Использует контекст для graceful shutdown.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -78,7 +74,8 @@ func RunAgent() error {
 			case metrics := <-metricsChan:
 				sendMetricsBatch(ctx, agentInstance, cfg, metrics, logger)
 			case <-ctx.Done():
-				// Дренируем канал перед выходом
+				// При получении сигнала завершения дренируем канал,
+				// чтобы не потерять уже собранные метрики.
 				for {
 					select {
 					case metrics := <-metricsChan:
@@ -91,7 +88,7 @@ func RunAgent() error {
 		}
 	}()
 
-	// Горутина сбора runtime метрик
+	// Горутина сбора runtime метрик (память, GC, горутины и т.д.)
 	go func() {
 		ticker := time.NewTicker(cfg.PollInterval)
 		defer ticker.Stop()
@@ -106,7 +103,7 @@ func RunAgent() error {
 		}
 	}()
 
-	// Горутина сбора системных метрик
+	// Горутина сбора системных метрик (CPU, память) через gopsutil
 	go func() {
 		ticker := time.NewTicker(cfg.PollInterval)
 		defer ticker.Stop()
@@ -131,7 +128,7 @@ func RunAgent() error {
 	logger.Info("Shutdown signal received, stopping agent...")
 	cancel() // сигнализируем горутинам остановиться
 
-	// Даем время на отправку оставшихся метрик
+	// Даём время на отправку оставшихся метрик
 	time.Sleep(2 * time.Second)
 
 	agentInstance.StopWorkers()
@@ -141,100 +138,8 @@ func RunAgent() error {
 	return nil
 }
 
-// runWithGracefulShutdown запускает агент с корректной обработкой сигналов
-func (a *Agent) runWithGracefulShutdown() error {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	defer cancel()
-
-	a.shutdownChan = make(chan struct{})
-	a.workerDoneChan = make(chan struct{})
-
-	// Start workers with proper processing function
-	a.instance.StartWorkers(func(metrics []agent.Metric) {
-		select {
-		case a.metricsChan <- metrics:
-		default:
-			a.logger.Warn("Metrics channel full, dropping batch")
-		}
-	})
-
-	go a.collectRuntimeMetricsLoop()
-	go a.collectSystemMetricsLoop()
-
-	<-ctx.Done()
-	a.logger.Info("Shutdown signal received, draining metrics...")
-
-	close(a.shutdownChan)
-
-	drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer drainCancel()
-
-	select {
-	case <-a.workerDoneChan:
-	case <-drainCtx.Done():
-		a.logger.Warn("Drain timeout, forcing stop")
-	}
-
-	a.instance.StopWorkers()
-	close(a.metricsChan)
-
-	a.logger.Info("Agent shutdown completed")
-	return nil
-}
-
-// sendMetricsLoop continuously sends metrics from the channel
-func (a *Agent) sendMetricsLoop() {
-	defer close(a.workerDoneChan)
-
-	for {
-		select {
-		case metrics, ok := <-a.metricsChan:
-			if !ok {
-				return
-			}
-			sendMetricsBatch(context.Background(), a.instance, a.cfg, metrics, a.logger)
-		case <-a.shutdownChan:
-			// Drain channel before shutdown
-			a.drainAndSendMetrics()
-			return
-		}
-	}
-}
-
-// drainAndSendMetrics sends all remaining metrics in the channel
-func (a *Agent) drainAndSendMetrics() {
-	a.logger.Info("Draining metrics channel before shutdown")
-
-	// Collect all pending metrics
-	var allMetrics []agent.Metric
-
-	// Get metrics from channel with timeout
-	drainTimeout := time.After(5 * time.Second)
-
-	for {
-		select {
-		case metrics, ok := <-a.metricsChan:
-			if !ok {
-				goto send
-			}
-			allMetrics = append(allMetrics, metrics...)
-		case <-drainTimeout:
-			a.logger.Warn("Drain timeout reached, sending what we have")
-			goto send
-		default:
-			// No more metrics available
-			goto send
-		}
-	}
-
-send:
-	if len(allMetrics) > 0 {
-		a.logger.Info("Sending final metrics batch", zap.Int("count", len(allMetrics)))
-		sendMetricsBatch(context.Background(), a.instance, a.cfg, allMetrics, a.logger)
-	}
-}
-
-// sendMetricsBatch sends a batch of metrics with retry
+// sendMetricsBatch подготавливает и отправляет пачку метрик на сервер.
+// В случае ошибки логирует её, но не прерывает выполнение программы.
 func sendMetricsBatch(ctx context.Context, agentInstance *agent.Agent, cfg *config.AgentConfig, metrics []agent.Metric, logger *zap.Logger) {
 	if len(metrics) == 0 {
 		return
@@ -263,76 +168,5 @@ func sendMetricsBatch(ctx context.Context, agentInstance *agent.Agent, cfg *conf
 			zap.Error(err))
 	} else {
 		logger.Debug("Metrics batch sent successfully", zap.Int("count", len(modelMetrics)))
-	}
-}
-
-// collectRuntimeMetricsLoop collects runtime metrics periodically
-func (a *Agent) collectRuntimeMetricsLoop() {
-	ticker := time.NewTicker(a.cfg.PollInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			metrics := a.instance.CollectRuntimeMetrics()
-			a.instance.SendMetrics(metrics)
-		case <-a.shutdownChan:
-			return
-		}
-	}
-}
-
-func (a *Agent) collectSystemMetricsLoop() {
-	ticker := time.NewTicker(a.cfg.PollInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			metrics := a.instance.CollectSystemMetrics()
-			if len(metrics) > 0 {
-				a.instance.SendMetrics(metrics)
-			}
-		case <-a.shutdownChan:
-			return
-		}
-	}
-}
-
-// gracefulShutdown performs graceful shutdown of the agent
-func (a *Agent) gracefulShutdown() error {
-	a.logger.Info("Starting agent graceful shutdown")
-
-	// Step 1: Signal shutdown to all goroutines
-	close(a.shutdownChan)
-
-	// Step 2: Wait for worker goroutines to finish (with timeout)
-	a.logger.Info("Waiting for workers to finish")
-	select {
-	case <-a.workerDoneChan:
-		a.logger.Info("All workers stopped gracefully")
-	case <-time.After(10 * time.Second):
-		a.logger.Warn("Worker shutdown timeout, forcing stop")
-	}
-
-	// Step 3: Stop agent workers
-	a.instance.StopWorkers()
-
-	// Step 4: Close metrics channel
-	close(a.metricsChan)
-
-	a.logger.Info("Agent shutdown completed successfully")
-	return nil
-}
-
-// getAgentSignalDescription returns human-readable signal description
-func getAgentSignalDescription(sig os.Signal) string {
-	switch sig {
-	case syscall.SIGTERM:
-		return "Termination signal (SIGTERM)"
-	case syscall.SIGINT:
-		return "Interrupt signal (SIGINT) - typically from Ctrl+C"
-	case syscall.SIGQUIT:
-		return "Quit signal (SIGQUIT) - typically from Ctrl+\\"
-	default:
-		return sig.String()
 	}
 }

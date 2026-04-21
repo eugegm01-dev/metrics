@@ -1,3 +1,4 @@
+// Package repository содержит реализации хранилищ метрик: в памяти, в файле и в PostgreSQL.
 package repository
 
 import (
@@ -17,12 +18,18 @@ import (
 //go:embed../../migrations/*.sql
 var migrationFiles embed.FS
 
-// PGStorage – реализация Storage с использованием PostgreSQL.
+// PGStorage – реализация интерфейса Storage с использованием PostgreSQL в качестве хранилища.
+// Поддерживает автоматические миграции через goose и повторные попытки (retry) для устойчивости
+// к временным сбоям соединения с базой данных.
 type PGStorage struct {
 	db *sql.DB
 }
 
-// NewPGStorage создаёт новый PGStorage и применяет миграции.
+// NewPGStorage создаёт новый экземпляр PGStorage и применяет миграции базы данных.
+// Миграции встроены в бинарный файл с помощью embed.FS, что позволяет распространять
+// сервер без необходимости хранить SQL-файлы отдельно.
+// В качестве аргумента принимает открытое соединение с базой данных *sql.DB.
+// Возвращает ошибку, если соединение равно nil или не удалось применить миграции.
 func NewPGStorage(db *sql.DB) (*PGStorage, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database connection is nil")
@@ -32,7 +39,7 @@ func NewPGStorage(db *sql.DB) (*PGStorage, error) {
 	if err := goose.SetDialect("postgres"); err != nil {
 		return nil, fmt.Errorf("goose set dialect: %w", err)
 	}
-	// Вызываем Up с пустой строкой, goose будет искать миграции во встроенной ФС
+	// Вызываем Up с пустой строкой – goose будет искать миграции во встроенной ФС.
 	if err := goose.Up(db, "."); err != nil {
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
@@ -40,7 +47,10 @@ func NewPGStorage(db *sql.DB) (*PGStorage, error) {
 	return &PGStorage{db: db}, nil
 }
 
-// executeWithRetry выполняет операцию с ретраями для retryable ошибок
+// executeWithRetry выполняет переданную операцию с повторными попытками в случае
+// возникновения retryable ошибок (например, временная потеря соединения с БД).
+// Между попытками используются фиксированные задержки: 1, 3 и 5 секунд.
+// Если контекст отменён, выполнение прерывается и возвращается ошибка контекста.
 func (s *PGStorage) executeWithRetry(ctx context.Context, operation func() error) error {
 	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 
@@ -75,7 +85,9 @@ func (s *PGStorage) executeWithRetry(ctx context.Context, operation func() error
 	return fmt.Errorf("operation failed after %d retries", len(delays))
 }
 
-// isRetryableError проверяет, является ли ошибка PostgreSQL retryable
+// isRetryableError проверяет, является ли ошибка PostgreSQL retryable.
+// Retryable считаются ошибки классов 08 (соединение), 40 (откат транзакции),
+// 53 (недостаточно ресурсов) и 57 (ошибка оператора).
 func isRetryableError(err error) bool {
 	var pgErr *pgconn.PgError
 	if ok := errors.As(err, &pgErr); ok {
@@ -94,7 +106,9 @@ func isRetryableError(err error) bool {
 	return false
 }
 
-// executeInTransaction выполняет функцию в транзакции с ретраями
+// executeInTransaction выполняет функцию fn в рамках транзакции с автоматическими
+// повторными попытками при retryable ошибках. При возникновении паники внутри fn
+// транзакция откатывается, после чего паника пробрасывается дальше.
 func (s *PGStorage) executeInTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	return s.executeWithRetry(ctx, func() error {
 		tx, err := s.db.BeginTx(ctx, nil)
@@ -118,7 +132,7 @@ func (s *PGStorage) executeInTransaction(ctx context.Context, fn func(tx *sql.Tx
 	})
 }
 
-// UpdateGauge обновляет gauge-метрику в БД.
+// UpdateGauge обновляет (или вставляет) gauge-метрику в таблице gauges.
 func (s *PGStorage) UpdateGauge(name string, value float64) error {
 	ctx := context.Background()
 	return s.executeWithRetry(ctx, func() error {
@@ -131,7 +145,8 @@ func (s *PGStorage) UpdateGauge(name string, value float64) error {
 	})
 }
 
-// UpdateCounter обновляет counter-метрику в БД (инкремент).
+// UpdateCounter обновляет counter-метрику, увеличивая её значение на переданную дельту.
+// Если метрика отсутствует, она создаётся с начальным значением value.
 func (s *PGStorage) UpdateCounter(name string, value int64) error {
 	ctx := context.Background()
 	return s.executeWithRetry(ctx, func() error {
@@ -144,7 +159,8 @@ func (s *PGStorage) UpdateCounter(name string, value int64) error {
 	})
 }
 
-// GetGauge возвращает gauge-значение из БД.
+// GetGauge возвращает текущее значение gauge-метрики и флаг её существования.
+// Если метрика не найдена, возвращается (0, false, nil).
 func (s *PGStorage) GetGauge(name string) (float64, bool, error) {
 	var value float64
 	ctx := context.Background()
@@ -161,7 +177,8 @@ func (s *PGStorage) GetGauge(name string) (float64, bool, error) {
 	return value, true, nil
 }
 
-// GetCounter возвращает counter-значение из БД.
+// GetCounter возвращает текущее значение counter-метрики и флаг её существования.
+// Если метрика не найдена, возвращается (0, false, nil).
 func (s *PGStorage) GetCounter(name string) (int64, bool, error) {
 	var value int64
 	ctx := context.Background()
@@ -178,7 +195,8 @@ func (s *PGStorage) GetCounter(name string) (int64, bool, error) {
 	return value, true, nil
 }
 
-// GetAllMetrics возвращает строковое представление всех метрик из БД.
+// GetAllMetrics возвращает строковое представление всех метрик, хранящихся в БД,
+// в удобочитаемом формате.
 func (s *PGStorage) GetAllMetrics() (string, error) {
 	var result string
 	ctx := context.Background()
@@ -228,7 +246,8 @@ func (s *PGStorage) GetAllMetrics() (string, error) {
 	return result, nil
 }
 
-// UpdateBatch обновляет несколько метрик за одну транзакцию.
+// UpdateBatch обновляет несколько метрик в рамках одной транзакции, что повышает
+// производительность при пакетной отправке данных агентом.
 func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
 	ctx := context.Background()
 	return s.executeInTransaction(ctx, func(tx *sql.Tx) error {
@@ -259,7 +278,7 @@ func (s *PGStorage) UpdateBatch(metrics []models.Metrics) error {
 	})
 }
 
-// Close закрывает соединение с БД.
+// Close закрывает соединение с базой данных.
 func (s *PGStorage) Close() error {
 	return s.db.Close()
 }

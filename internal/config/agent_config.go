@@ -1,3 +1,5 @@
+// Package config содержит структуры конфигурации и функции для их загрузки
+// из различных источников (файл JSON, переменные окружения, флаги командной строки).
 package config
 
 import (
@@ -9,19 +11,30 @@ import (
 	"time"
 )
 
-// AgentConfig содержит конфигурацию агента.
+// AgentConfig содержит все параметры конфигурации агента.
 type AgentConfig struct {
-	ServerAddr     string
-	PollInterval   time.Duration
+	// ServerAddr – адрес HTTP-сервера, на который агент отправляет метрики.
+	ServerAddr string
+
+	// PollInterval – интервал сбора метрик (runtime и системных).
+	PollInterval time.Duration
+
+	// ReportInterval – интервал отправки собранных метрик на сервер.
 	ReportInterval time.Duration
-	RateLimit      int
-	Key            string
-	CryptoKey      string
+
+	// RateLimit – максимальное количество одновременно исходящих запросов.
+	RateLimit int
+
+	// Key – секретный ключ для подписи запросов с помощью HMAC-SHA256.
+	Key string
+
+	// CryptoKey – путь к файлу с публичным RSA-ключом для асимметричного шифрования.
+	CryptoKey string
 }
 
-// ParseAgentConfig читает конфигурацию агента из флагов командной строки и переменных окружения.
-// Приоритет: переменные окружения переопределяют флаги.
-// AgentConfigFile представляет формат JSON-файла для агента.
+// AgentConfigFile представляет структуру JSON-файла конфигурации агента.
+// Поля соответствуют ключам в JSON, что позволяет гибко настраивать агента
+// без передачи большого количества флагов.
 type AgentConfigFile struct {
 	Address        string `json:"address"`
 	ReportInterval string `json:"report_interval"`
@@ -31,7 +44,16 @@ type AgentConfigFile struct {
 	Key            string `json:"key"`
 }
 
-// ParseAgentConfig загружает конфигурацию агента с учётом приоритетов.
+// ParseAgentConfig загружает конфигурацию агента, соблюдая следующий приоритет
+// (от низшего к высшему):
+//  1. Значения по умолчанию
+//  2. JSON-файл, указанный через флаг -c/-config или переменную окружения CONFIG
+//  3. Переменные окружения (ADDRESS, POLL_INTERVAL, REPORT_INTERVAL, RATE_LIMIT,
+//     KEY, CRYPTO_KEY)
+//  4. Флаги командной строки, если они были явно заданы (используется flag.Visit)
+//
+// Такой порядок гарантирует, что наиболее специфичные настройки (флаги)
+// переопределяют общие (файл, окружение).
 func ParseAgentConfig() (*AgentConfig, error) {
 	var (
 		flagServerAddr     string
@@ -53,7 +75,7 @@ func ParseAgentConfig() (*AgentConfig, error) {
 	flag.StringVar(&flagCryptoKey, "crypto-key", "", "путь к файлу публичного ключа")
 	flag.Parse()
 
-	// Базовые значения
+	// Базовые значения (низший приоритет)
 	cfg := &AgentConfig{
 		ServerAddr:     "localhost:8080",
 		PollInterval:   2 * time.Second,
@@ -101,7 +123,7 @@ func ParseAgentConfig() (*AgentConfig, error) {
 		cfg.CryptoKey = envCryptoKey
 	}
 
-	// Флаги (высший приоритет)
+	// Флаги (высший приоритет) – применяются только если были явно заданы.
 	flag.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "a":
@@ -122,6 +144,9 @@ func ParseAgentConfig() (*AgentConfig, error) {
 	return cfg, nil
 }
 
+// loadAgentConfigFromFile читает JSON-файл и заполняет поля конфигурации,
+// которые ещё не были установлены (т.е. равны значениям по умолчанию).
+// Это позволяет комбинировать настройки из файла с параметрами окружения и флагами.
 func loadAgentConfigFromFile(path string, cfg *AgentConfig) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
