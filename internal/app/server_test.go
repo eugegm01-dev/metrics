@@ -14,7 +14,7 @@ func TestInitRouter(t *testing.T) {
 	storage := repository.NewMemStorage()
 	logger := zap.NewNop()
 	// Добавлен пятый аргумент nil для privKey
-	r := initRouter(storage, logger, "", nil, nil)
+	r := initRouter(storage, logger, "", nil, nil, "")
 	if r == nil {
 		t.Fatal("router is nil")
 	}

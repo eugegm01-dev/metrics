@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"sync"
@@ -46,6 +47,11 @@ func gzipData(data []byte) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+var (
+	localIP     string
+	localIPOnce sync.Once
+)
 
 func init() {
 	retryClient = retryablehttp.NewClient()
@@ -120,6 +126,9 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) e
 	if hash != "" {
 		req.Header.Set("HashSHA256", hash)
 	}
+	if ip := getLocalIP(); ip != "" {
+		req.Header.Set("X-Real-IP", ip)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -135,11 +144,13 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) e
 		return fmt.Errorf("server returned status: %d", resp.StatusCode)
 	}
 	return nil
+
 }
 
 // SendMetrics отправляет каждую метрику по отдельности через эндпоинт /update.
 func SendMetrics(serverAddr string, metrics []models.Metrics, key string) error {
 	for _, metric := range metrics {
+
 		jsonData, err := json.Marshal(metric)
 		if err != nil {
 			return fmt.Errorf("marshal metric: %w", err)
@@ -171,6 +182,9 @@ func SendMetrics(serverAddr string, metrics []models.Metrics, key string) error 
 		req, err := retryablehttp.NewRequest("POST", fullURL, bytes.NewBuffer(finalBody))
 		if err != nil {
 			return fmt.Errorf("create request: %w", err)
+		}
+		if ip := getLocalIP(); ip != "" {
+			req.Header.Set("X-Real-IP", ip)
 		}
 
 		if isEncrypted {
@@ -251,6 +265,11 @@ func SendMetricsBatchWithContext(ctx context.Context, serverAddr string, metrics
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
+	// Add this block
+	if ip := getLocalIP(); ip != "" {
+		req.Header.Set("X-Real-IP", ip)
+	}
+
 	if isEncrypted {
 		req.Header.Set("X-Crypto-Encrypted", "true")
 		req.Header.Set("Content-Type", "application/octet-stream")
@@ -277,6 +296,24 @@ func SendMetricsBatchWithContext(ctx context.Context, serverAddr string, metrics
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("server returned status: %d", resp.StatusCode)
 	}
+	if ip := getLocalIP(); ip != "" {
+		req.Header.Set("X-Real-IP", ip)
+	}
 
 	return nil
+}
+func getLocalIP() string {
+	localIPOnce.Do(func() {
+		addrs, err := net.InterfaceAddrs()
+		if err != nil {
+			return
+		}
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+				localIP = ipnet.IP.String()
+				break
+			}
+		}
+	})
+	return localIP
 }

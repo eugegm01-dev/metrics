@@ -110,8 +110,7 @@ func RunServer() error {
 	}
 
 	// Initialize router
-	r := initRouter(storage, logger, cfg.Key, auditSubject, privKey)
-
+	r := initRouter(storage, logger, cfg.Key, auditSubject, privKey, cfg.TrustedSubnet)
 	// Create server
 	srv := &http.Server{
 		Addr:         cfg.Addr,
@@ -295,7 +294,7 @@ func initStorage(cfg *config.ServerConfig, db *sql.DB, logger *zap.Logger) (repo
 	return repository.NewStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore, db)
 }
 
-func initRouter(storage repository.Storage, logger *zap.Logger, key string, auditSubject *audit.Subject, privKey interface{}) *chi.Mux {
+func initRouter(storage repository.Storage, logger *zap.Logger, key string, auditSubject *audit.Subject, privKey interface{}, trustedSubnet string) *chi.Mux {
 	r := chi.NewRouter()
 
 	var rsaKey *rsa.PrivateKey
@@ -312,6 +311,7 @@ func initRouter(storage repository.Storage, logger *zap.Logger, key string, audi
 	r.Use(middleware.GzipMiddleware)
 	r.Use(middleware.LoggingMiddleware(logger))
 	r.Use(middleware.HashMiddleware(key))
+	r.Use(middleware.TrustedSubnetMiddleware(trustedSubnet))
 
 	r.HandleFunc("/debug/pprof/", pprof.Index)
 	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
@@ -351,34 +351,4 @@ func initRouter(storage repository.Storage, logger *zap.Logger, key string, audi
 	})
 
 	return r
-}
-
-func runServer(srv *http.Server, logger *zap.Logger) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	go func() {
-		logger.Info("Starting HTTP server", zap.String("address", srv.Addr))
-		if err := chi.Walk(srv.Handler.(*chi.Mux), func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
-			logger.Debug("Registered route", zap.String("method", method), zap.String("route", route))
-			return nil
-		}); err != nil {
-			logger.Warn("Failed to walk routes", zap.Error(err))
-		}
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Server failed to start", zap.Error(err))
-		}
-	}()
-
-	<-ctx.Done()
-	logger.Info("Received shutdown signal, gracefully shutting down...")
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("server shutdown error: %w", err)
-	}
-
-	logger.Info("Server stopped")
-	return nil
 }

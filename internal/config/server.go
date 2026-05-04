@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var flagTrustedSubnet string
+
 // ServerConfig содержит конфигурацию сервера.
 
 type ServerConfig struct {
@@ -23,7 +25,7 @@ type ServerConfig struct {
 	AuditURL        string // URL для отправки аудита
 	MigrationsDir   string // путь к миграциям
 	CryptoKey       string // путь к приватному ключу
-
+	TrustedSubnet   string
 }
 
 // ServerConfigFile представляет формат JSON-файла для сервера.
@@ -38,6 +40,7 @@ type ServerConfigFile struct {
 	AuditFile     string `json:"audit_file"`
 	AuditURL      string `json:"audit_url"`
 	MigrationsDir string `json:"migrations_dir"`
+	TrustedSubnet string `json:"trusted_subnet"`
 }
 
 // ParseServerConfig загружает конфигурацию с учётом приоритетов:
@@ -58,6 +61,7 @@ func ParseServerConfig() (*ServerConfig, error) {
 		flagAuditURL        string
 		flagMigrationsDir   string
 		flagCryptoKey       string
+		flagTrustedSubnet   string
 		configFile          string
 	)
 
@@ -73,6 +77,7 @@ func ParseServerConfig() (*ServerConfig, error) {
 	flag.StringVar(&flagFileStoragePath, "f", "/tmp/metrics-db.json", "путь к файлу для сохранения метрик")
 	flag.StringVar(&flagCryptoKey, "crypto-key", "", "путь к файлу приватного ключа")
 	flag.BoolVar(&flagRestore, "r", true, "загружать сохранённые метрики при старте")
+	flag.StringVar(&flagTrustedSubnet, "t", "", "доверенная подсеть (CIDR)")
 	flag.Parse()
 
 	// 1. Базовые значения по умолчанию
@@ -133,6 +138,9 @@ func ParseServerConfig() (*ServerConfig, error) {
 	if envCryptoKey := os.Getenv("CRYPTO_KEY"); envCryptoKey != "" {
 		cfg.CryptoKey = envCryptoKey
 	}
+	if envTrustedSubnet := os.Getenv("TRUSTED_SUBNET"); envTrustedSubnet != "" {
+		cfg.TrustedSubnet = envTrustedSubnet
+	}
 
 	// 4. Флаги командной строки (высший приоритет)
 	flag.Visit(func(f *flag.Flag) {
@@ -157,6 +165,9 @@ func ParseServerConfig() (*ServerConfig, error) {
 			cfg.MigrationsDir = flagMigrationsDir
 		case "crypto-key":
 			cfg.CryptoKey = flagCryptoKey
+		case "t":
+			cfg.TrustedSubnet = flagTrustedSubnet
+
 		}
 	})
 
@@ -205,5 +216,10 @@ func loadServerConfigFromFile(path string, cfg *ServerConfig) error {
 	if fileCfg.MigrationsDir != "" {
 		cfg.MigrationsDir = fileCfg.MigrationsDir
 	}
+
+	if fileCfg.TrustedSubnet != "" {
+		cfg.TrustedSubnet = fileCfg.TrustedSubnet
+	}
+
 	return nil
 }
