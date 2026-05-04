@@ -1,0 +1,8 @@
+{
+    "address": "localhost:9090",
+    "report_interval": "2s",
+    "poll_interval": "1s",
+    "crypto_key": "./public.pem",
+    "rate_limit": 5,
+    "key": "my-secret-key"
+}

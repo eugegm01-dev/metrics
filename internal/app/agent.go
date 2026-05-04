@@ -13,7 +13,6 @@ import (
 
 	"github.com/eugegm01-dev/metrics/internal/agent"
 	"github.com/eugegm01-dev/metrics/internal/config"
-	"github.com/eugegm01-dev/metrics/internal/model"
 )
 
 // RunAgent – точка входа для агента. Загружает конфигурацию, инициализирует
@@ -156,30 +155,16 @@ func sendMetricsBatch(ctx context.Context, agentInstance *agent.Agent, cfg *conf
 		return
 	}
 	prepared := agentInstance.PrepareMetricsForSend(metrics)
-	var modelMetrics []model.Metrics
-	for _, m := range prepared {
-		metric := model.Metrics{
-			ID:    m.ID,
-			MType: m.MType,
-		}
-		switch m.MType {
-		case model.Gauge:
-			value := m.Value
-			metric.Value = &value
-		case model.Counter:
-			delta := m.Delta
-			metric.Delta = &delta
-		}
-		modelMetrics = append(modelMetrics, metric)
+	if len(prepared) == 0 {
+		return
 	}
 
 	if grpcClient != nil {
-		if err := grpcClient.SendBatch(ctx, metrics); err != nil {
+		if err := grpcClient.SendBatch(ctx, prepared); err != nil {
 			logger.Error("gRPC send failed", zap.Error(err))
-			// при желании можешь сделать fallback на HTTP
 		} else {
-			logger.Debug("gRPC batch sent", zap.Int("count", len(metrics)))
-			return
+			logger.Debug("gRPC batch sent", zap.Int("count", len(prepared)))
 		}
+		return
 	}
 }

@@ -24,59 +24,35 @@ type MetricsServer struct {
 }
 
 func (s *MetricsServer) UpdateMetrics(ctx context.Context, req *pb.UpdateMetricsRequest) (*pb.UpdateMetricsResponse, error) {
+	var modelMetrics []model.Metrics
 	for _, m := range req.Metrics {
 		metric := model.Metrics{
 			ID:    m.GetId(),
-			MType: m.GetType().String(),
+			MType: m.GetType().String(), // "GAUGE" или "COUNTER"
 		}
-		// тип может быть "GAUGE" или "COUNTER", сконвертируем
 		switch m.GetType() {
 		case pb.Metric_GAUGE:
 			metric.Value = &m.Value
 		case pb.Metric_COUNTER:
 			metric.Delta = &m.Delta
 		}
-		// ВАЖНО: твой Storage ожидает 'counter' / 'gauge' строкой,
-		// поэтому преобразуем
-		metric.MType = m.GetType().String()
-		// Если нужна поддержка старых строк "gauge"/"counter",
-		// можно просто заменить в вызове:
-		// m.GetType().String() вернёт "GAUGE" или "COUNTER"
-		// а Storage в методах UpdateGauge/UpdateCounter ожидает имя и значение.
-		// Поэтому разумнее вызвать методы напрямую в зависимости от типа.
+		modelMetrics = append(modelMetrics, metric)
 	}
 
-	// Эффективная пакетная вставка через BatchUpdater
 	if batchUpdater, ok := s.storage.(repository.BatchUpdater); ok {
-		var modelMetrics []model.Metrics
-		for _, m := range req.Metrics {
-			metric := model.Metrics{
-				ID:    m.GetId(),
-				MType: m.GetType().String(),
-			}
-			switch m.GetType() {
-			case pb.Metric_GAUGE:
-				metric.Value = &m.Value
-			case pb.Metric_COUNTER:
-				metric.Delta = &m.Delta
-			}
-			modelMetrics = append(modelMetrics, metric)
-		}
 		if err := batchUpdater.UpdateBatch(modelMetrics); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to update metrics: %v", err)
 		}
 	} else {
-		// Атомарная вставка по одной
-		for _, m := range req.Metrics {
-			switch m.GetType() {
-			case pb.Metric_GAUGE:
-				s.storage.UpdateGauge(m.GetId(), m.GetValue())
-			case pb.Metric_COUNTER:
-				s.storage.UpdateCounter(m.GetId(), m.GetDelta())
+		for _, m := range modelMetrics {
+			switch m.MType {
+			case model.Gauge:
+				s.storage.UpdateGauge(m.ID, *m.Value)
+			case model.Counter:
+				s.storage.UpdateCounter(m.ID, *m.Delta)
 			}
 		}
 	}
-
 	return &pb.UpdateMetricsResponse{}, nil
 }
 
