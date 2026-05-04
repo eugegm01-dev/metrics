@@ -1,11 +1,6 @@
 # Go build artifacts (бинарники)
 *.exe
 *.exe~
-server
-agent
-main
-collector
-sender
 *.test
 *.out
 *.prof
@@ -23,9 +18,9 @@ vendor/
 *.tmp
 *.bak
 *~
-*.json
-metrics-db.json
 
+# Ignore specific generated JSON, not all
+metrics-db.json
 
 # IDE files
 .idea/
