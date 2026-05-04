@@ -74,6 +74,12 @@ func RunServer() error {
 		return fmt.Errorf("failed to create storage: %w", err)
 	}
 	defer storage.Close()
+	// Запуск gRPC сервера
+	if cfg.GRPCAddress != "" {
+		if err := StartGRPCServer(cfg.GRPCAddress, storage, cfg.TrustedSubnet, logger); err != nil {
+			return fmt.Errorf("failed to start gRPC: %w", err)
+		}
+	}
 
 	// Initialize audit
 	var auditSubject *audit.Subject

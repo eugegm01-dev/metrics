@@ -28,6 +28,17 @@ func RunAgent() error {
 	defer func() { _ = logger.Sync() }()
 
 	cfg, err := config.ParseAgentConfig()
+	// Инициализация gRPC клиента
+	var grpcClient *agent.GRPCClient
+	if cfg.GRPCServerAddr != "" {
+		var err error
+		grpcClient, err = agent.NewGRPCClient(cfg.GRPCServerAddr)
+		if err != nil {
+			return fmt.Errorf("grpc client: %w", err)
+		}
+		defer grpcClient.Close()
+		logger.Info("gRPC client connected", zap.String("addr", cfg.GRPCServerAddr))
+	}
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
@@ -72,14 +83,14 @@ func RunAgent() error {
 		for {
 			select {
 			case metrics := <-metricsChan:
-				sendMetricsBatch(ctx, agentInstance, cfg, metrics, logger)
+				sendMetricsBatch(ctx, agentInstance, cfg, metrics, logger, grpcClient)
 			case <-ctx.Done():
 				// При получении сигнала завершения дренируем канал,
 				// чтобы не потерять уже собранные метрики.
 				for {
 					select {
 					case metrics := <-metricsChan:
-						sendMetricsBatch(context.Background(), agentInstance, cfg, metrics, logger)
+						sendMetricsBatch(context.Background(), agentInstance, cfg, metrics, logger, grpcClient)
 					default:
 						return
 					}
@@ -140,7 +151,7 @@ func RunAgent() error {
 
 // sendMetricsBatch подготавливает и отправляет пачку метрик на сервер.
 // В случае ошибки логирует её, но не прерывает выполнение программы.
-func sendMetricsBatch(ctx context.Context, agentInstance *agent.Agent, cfg *config.AgentConfig, metrics []agent.Metric, logger *zap.Logger) {
+func sendMetricsBatch(ctx context.Context, agentInstance *agent.Agent, cfg *config.AgentConfig, metrics []agent.Metric, logger *zap.Logger, grpcClient *agent.GRPCClient) {
 	if len(metrics) == 0 {
 		return
 	}
@@ -162,11 +173,13 @@ func sendMetricsBatch(ctx context.Context, agentInstance *agent.Agent, cfg *conf
 		modelMetrics = append(modelMetrics, metric)
 	}
 
-	if err := agent.SendMetricsBatchWithContext(ctx, cfg.ServerAddr, modelMetrics, cfg.Key); err != nil {
-		logger.Error("Failed to send metrics batch",
-			zap.Int("count", len(modelMetrics)),
-			zap.Error(err))
-	} else {
-		logger.Debug("Metrics batch sent successfully", zap.Int("count", len(modelMetrics)))
+	if grpcClient != nil {
+		if err := grpcClient.SendBatch(ctx, metrics); err != nil {
+			logger.Error("gRPC send failed", zap.Error(err))
+			// при желании можешь сделать fallback на HTTP
+		} else {
+			logger.Debug("gRPC batch sent", zap.Int("count", len(metrics)))
+			return
+		}
 	}
 }

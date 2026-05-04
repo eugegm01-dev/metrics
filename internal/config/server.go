@@ -11,6 +11,7 @@ import (
 )
 
 var flagTrustedSubnet string
+var flagGRPCAddr string
 
 // ServerConfig содержит конфигурацию сервера.
 
@@ -26,6 +27,8 @@ type ServerConfig struct {
 	MigrationsDir   string // путь к миграциям
 	CryptoKey       string // путь к приватному ключу
 	TrustedSubnet   string
+	GRPCAddress     string // адрес для gRPC сервера, по умолчанию :50051
+	flagGRPCAddr    string
 }
 
 // ServerConfigFile представляет формат JSON-файла для сервера.
@@ -78,6 +81,7 @@ func ParseServerConfig() (*ServerConfig, error) {
 	flag.StringVar(&flagCryptoKey, "crypto-key", "", "путь к файлу приватного ключа")
 	flag.BoolVar(&flagRestore, "r", true, "загружать сохранённые метрики при старте")
 	flag.StringVar(&flagTrustedSubnet, "t", "", "доверенная подсеть (CIDR)")
+	flag.StringVar(&flagGRPCAddr, "g", ":50051", "gRPC server address")
 	flag.Parse()
 
 	// 1. Базовые значения по умолчанию
@@ -92,6 +96,7 @@ func ParseServerConfig() (*ServerConfig, error) {
 		AuditURL:        "",
 		MigrationsDir:   "migrations",
 		CryptoKey:       "",
+		GRPCAddress:     ":50051",
 	}
 
 	// 2. Загрузка из JSON-файла (если указан)
@@ -141,6 +146,9 @@ func ParseServerConfig() (*ServerConfig, error) {
 	if envTrustedSubnet := os.Getenv("TRUSTED_SUBNET"); envTrustedSubnet != "" {
 		cfg.TrustedSubnet = envTrustedSubnet
 	}
+	if envGRPCAddr := os.Getenv("GRPC_ADDRESS"); envGRPCAddr != "" {
+		cfg.GRPCAddress = envGRPCAddr
+	}
 
 	// 4. Флаги командной строки (высший приоритет)
 	flag.Visit(func(f *flag.Flag) {
@@ -167,6 +175,8 @@ func ParseServerConfig() (*ServerConfig, error) {
 			cfg.CryptoKey = flagCryptoKey
 		case "t":
 			cfg.TrustedSubnet = flagTrustedSubnet
+		case "g":
+			cfg.GRPCAddress = flagGRPCAddr
 
 		}
 	})

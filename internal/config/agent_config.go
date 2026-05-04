@@ -30,6 +30,9 @@ type AgentConfig struct {
 
 	// CryptoKey – путь к файлу с публичным RSA-ключом для асимметричного шифрования.
 	CryptoKey string
+
+	GRPCServerAddr string // адрес gRPC сервера (по умолчанию не задан)
+
 }
 
 // AgentConfigFile представляет структуру JSON-файла конфигурации агента.
@@ -63,6 +66,7 @@ func ParseAgentConfig() (*AgentConfig, error) {
 		flagKey            string
 		flagCryptoKey      string
 		configFile         string
+		flagGRPCServerAddr string
 	)
 
 	flag.StringVar(&configFile, "c", "", "config file path")
@@ -73,6 +77,7 @@ func ParseAgentConfig() (*AgentConfig, error) {
 	flag.IntVar(&flagRateLimit, "l", 10, "количество одновременно исходящих запросов")
 	flag.StringVar(&flagKey, "k", "", "ключ для подписи запросов")
 	flag.StringVar(&flagCryptoKey, "crypto-key", "", "путь к файлу публичного ключа")
+	flag.StringVar(&flagGRPCServerAddr, "g", "", "gRPC server address")
 	flag.Parse()
 
 	// Базовые значения (низший приоритет)
@@ -122,6 +127,9 @@ func ParseAgentConfig() (*AgentConfig, error) {
 	if envCryptoKey := os.Getenv("CRYPTO_KEY"); envCryptoKey != "" {
 		cfg.CryptoKey = envCryptoKey
 	}
+	if envGRPC := os.Getenv("GRPC_ADDRESS"); envGRPC != "" {
+		cfg.GRPCServerAddr = envGRPC
+	}
 
 	// Флаги (высший приоритет) – применяются только если были явно заданы.
 	flag.Visit(func(f *flag.Flag) {
@@ -138,6 +146,9 @@ func ParseAgentConfig() (*AgentConfig, error) {
 			cfg.Key = flagKey
 		case "crypto-key":
 			cfg.CryptoKey = flagCryptoKey
+		case "g":
+			cfg.GRPCServerAddr = flagGRPCServerAddr
+
 		}
 	})
 

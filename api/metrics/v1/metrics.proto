@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package metrics.v1;
+
+option go_package = "github.com/eugegm01-dev/metrics/api/metrics/v1";
+
+// Metric – единичная метрика
+message Metric {
+  string id = 1;
+  enum MType {
+    GAUGE = 0;
+    COUNTER = 1;
+  }
+  MType type = 2;
+  int64 delta = 3;
+  double value = 4;
+}
+
+// Запрос на обновление метрик (батч)
+message UpdateMetricsRequest {
+  repeated Metric metrics = 1;
+}
+
+// Пустой ответ
+message UpdateMetricsResponse {}
+
+// Сервис метрик
+service Metrics {
+  rpc UpdateMetrics(UpdateMetricsRequest) returns (UpdateMetricsResponse);
+}
