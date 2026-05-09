@@ -25,6 +25,7 @@ import (
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 )
 
 // Server encapsulates the HTTP server with graceful shutdown
@@ -50,14 +51,6 @@ func RunServer() error {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	logger.Info("Server configuration",
-		zap.String("address", cfg.Addr),
-		zap.Duration("store_interval", cfg.StoreInterval),
-		zap.String("file_storage_path", cfg.FileStoragePath),
-		zap.Bool("restore", cfg.Restore),
-		zap.String("database_dsn", cfg.DatabaseDSN),
-	)
-
 	// Initialize database
 	var db *sql.DB
 	if cfg.DatabaseDSN != "" {
@@ -74,12 +67,6 @@ func RunServer() error {
 		return fmt.Errorf("failed to create storage: %w", err)
 	}
 	defer storage.Close()
-	// Запуск gRPC сервера
-	if cfg.GRPCAddress != "" {
-		if err := StartGRPCServer(cfg.GRPCAddress, storage, cfg.TrustedSubnet, logger); err != nil {
-			return fmt.Errorf("failed to start gRPC: %w", err)
-		}
-	}
 
 	// Initialize audit
 	var auditSubject *audit.Subject
@@ -124,6 +111,15 @@ func RunServer() error {
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,
+	}
+
+	var grpcSrv *grpc.Server
+	if cfg.GRPCAddress != "" {
+		grpcSrv, err = StartGRPCServer(cfg.GRPCAddress, storage, cfg.TrustedSubnet, logger)
+		if err != nil {
+			return fmt.Errorf("failed to start gRPC: %w", err)
+		}
+		defer grpcSrv.GracefulStop()
 	}
 
 	// Create server wrapper

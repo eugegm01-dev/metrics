@@ -1,4 +1,3 @@
-// Package app содержит основную логику запуска и graceful shutdown агента и сервера.
 package app
 
 import (
@@ -13,12 +12,11 @@ import (
 
 	"github.com/eugegm01-dev/metrics/internal/agent"
 	"github.com/eugegm01-dev/metrics/internal/config"
+	cryptoPkg "github.com/eugegm01-dev/metrics/internal/crypto"
+	"github.com/eugegm01-dev/metrics/internal/model"
 )
 
-// RunAgent – точка входа для агента. Загружает конфигурацию, инициализирует
-// шифрование (если задан ключ), запускает сбор метрик и их отправку на сервер.
-// При получении сигнала SIGINT/SIGTERM/SIGQUIT агент корректно завершает работу,
-// отправляя оставшиеся в канале метрики.
+// RunAgent – точка входа для агента.
 func RunAgent() error {
 	logger, err := zap.NewDevelopment(zap.AddStacktrace(zap.FatalLevel))
 	if err != nil {
@@ -27,26 +25,8 @@ func RunAgent() error {
 	defer func() { _ = logger.Sync() }()
 
 	cfg, err := config.ParseAgentConfig()
-	// Инициализация gRPC клиента
-	var grpcClient *agent.GRPCClient
-	if cfg.GRPCServerAddr != "" {
-		var err error
-		grpcClient, err = agent.NewGRPCClient(cfg.GRPCServerAddr)
-		if err != nil {
-			return fmt.Errorf("grpc client: %w", err)
-		}
-		defer grpcClient.Close()
-		logger.Info("gRPC client connected", zap.String("addr", cfg.GRPCServerAddr))
-	}
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
-	}
-
-	if cfg.CryptoKey != "" {
-		if err := agent.InitAgentCrypto(cfg.CryptoKey); err != nil {
-			return fmt.Errorf("failed to init agent crypto: %w", err)
-		}
-		logger.Info("Agent crypto initialized", zap.String("key_path", cfg.CryptoKey))
 	}
 
 	logger.Info("Agent started",
@@ -56,15 +36,33 @@ func RunAgent() error {
 		zap.Int("rate_limit", cfg.RateLimit),
 	)
 
+	// Инициализация gRPC клиента
+	var grpcClient *agent.GRPCClient
+	if cfg.GRPCServerAddr != "" {
+		grpcClient, err = agent.NewGRPCClient(cfg.GRPCServerAddr)
+		if err != nil {
+			return fmt.Errorf("grpc client: %w", err)
+		}
+		defer grpcClient.Close()
+		logger.Info("gRPC client connected", zap.String("addr", cfg.GRPCServerAddr))
+	}
+
+	// Инициализация HTTP-отправителя
+	var httpSender *agent.Sender
+	if cfg.CryptoKey != "" {
+		pubKey, err := cryptoPkg.LoadPublicKey(cfg.CryptoKey)
+		if err != nil {
+			return fmt.Errorf("failed to load public key: %w", err)
+		}
+		httpSender = agent.NewSender(cfg.ServerAddr, cfg.Key, pubKey)
+	} else {
+		httpSender = agent.NewSender(cfg.ServerAddr, cfg.Key, nil)
+	}
+
 	agentInstance := agent.NewAgent(cfg.RateLimit)
 
-	// Канал для передачи метрик от сборщиков к отправителю.
-	// Буферизация позволяет избежать блокировок при пиковых нагрузках.
 	metricsChan := make(chan []agent.Metric, 100)
 
-	// Запускаем воркеры агента. Они будут асинхронно отправлять метрики.
-	// Внутренняя реализация agent.StartWorkers запускает rateLimit горутин,
-	// которые читают из внутреннего канала агента и вызывают переданную функцию.
 	agentInstance.StartWorkers(func(metrics []agent.Metric) {
 		select {
 		case metricsChan <- metrics:
@@ -73,8 +71,6 @@ func RunAgent() error {
 		}
 	})
 
-	// Горутина для отправки метрик из канала.
-	// Использует контекст для graceful shutdown.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -82,14 +78,12 @@ func RunAgent() error {
 		for {
 			select {
 			case metrics := <-metricsChan:
-				sendMetricsBatch(ctx, agentInstance, cfg, metrics, logger, grpcClient)
+				sendMetricsBatch(ctx, agentInstance, cfg, metrics, logger, grpcClient, httpSender)
 			case <-ctx.Done():
-				// При получении сигнала завершения дренируем канал,
-				// чтобы не потерять уже собранные метрики.
 				for {
 					select {
 					case metrics := <-metricsChan:
-						sendMetricsBatch(context.Background(), agentInstance, cfg, metrics, logger, grpcClient)
+						sendMetricsBatch(context.Background(), agentInstance, cfg, metrics, logger, grpcClient, httpSender)
 					default:
 						return
 					}
@@ -98,7 +92,6 @@ func RunAgent() error {
 		}
 	}()
 
-	// Горутина сбора runtime метрик (память, GC, горутины и т.д.)
 	go func() {
 		ticker := time.NewTicker(cfg.PollInterval)
 		defer ticker.Stop()
@@ -113,7 +106,6 @@ func RunAgent() error {
 		}
 	}()
 
-	// Горутина сбора системных метрик (CPU, память) через gopsutil
 	go func() {
 		ticker := time.NewTicker(cfg.PollInterval)
 		defer ticker.Stop()
@@ -130,15 +122,12 @@ func RunAgent() error {
 		}
 	}()
 
-	// Ожидание сигнала завершения
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	<-sigChan
 
 	logger.Info("Shutdown signal received, stopping agent...")
-	cancel() // сигнализируем горутинам остановиться
-
-	// Даём время на отправку оставшихся метрик
+	cancel()
 	time.Sleep(2 * time.Second)
 
 	agentInstance.StopWorkers()
@@ -148,9 +137,8 @@ func RunAgent() error {
 	return nil
 }
 
-// sendMetricsBatch подготавливает и отправляет пачку метрик на сервер.
-// В случае ошибки логирует её, но не прерывает выполнение программы.
-func sendMetricsBatch(ctx context.Context, agentInstance *agent.Agent, cfg *config.AgentConfig, metrics []agent.Metric, logger *zap.Logger, grpcClient *agent.GRPCClient) {
+func sendMetricsBatch(ctx context.Context, agentInstance *agent.Agent, cfg *config.AgentConfig,
+	metrics []agent.Metric, logger *zap.Logger, grpcClient *agent.GRPCClient, sender *agent.Sender) {
 	if len(metrics) == 0 {
 		return
 	}
@@ -165,6 +153,20 @@ func sendMetricsBatch(ctx context.Context, agentInstance *agent.Agent, cfg *conf
 		} else {
 			logger.Debug("gRPC batch sent", zap.Int("count", len(prepared)))
 		}
-		return
+	} else {
+		modelMetrics := make([]model.Metrics, len(prepared))
+		for i, m := range prepared {
+			modelMetrics[i] = model.Metrics{
+				ID:    m.ID,
+				MType: m.MType,
+				Delta: &m.Delta,
+				Value: &m.Value,
+			}
+		}
+		if err := sender.SendBatch(ctx, modelMetrics); err != nil {
+			logger.Error("HTTP batch send failed", zap.Error(err))
+		} else {
+			logger.Debug("HTTP batch sent", zap.Int("count", len(prepared)))
+		}
 	}
 }

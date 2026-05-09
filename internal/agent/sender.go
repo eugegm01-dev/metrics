@@ -1,4 +1,3 @@
-// internal/agent/sender.go
 package agent
 
 import (
@@ -22,15 +21,20 @@ import (
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
 )
 
-// retryClient - клиент с автоматическими повторными попытками
-var retryClient *retryablehttp.Client
+// Sender отвечает за HTTP-отправку метрик на сервер.
+type Sender struct {
+	serverAddr string
+	key        string
+	publicKey  *rsa.PublicKey
+	localIP    string
+	client     *retryablehttp.Client
+}
 
 var gzipBufPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return bytes.NewBuffer(make([]byte, 0, 1024))
 	},
 }
-var publicKey *rsa.PublicKey
 
 func gzipData(data []byte) ([]byte, error) {
 	buf := gzipBufPool.Get().(*bytes.Buffer)
@@ -48,22 +52,23 @@ func gzipData(data []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-var (
-	localIP     string
-	localIPOnce sync.Once
-)
+// NewSender создает новый экземпляр Sender.
+func NewSender(serverAddr, key string, publicKey *rsa.PublicKey) *Sender {
+	client := retryablehttp.NewClient()
+	client.RetryMax = 3
+	client.RetryWaitMin = 1 * time.Second
+	client.RetryWaitMax = 5 * time.Second
+	client.HTTPClient = &http.Client{Timeout: 10 * time.Second}
 
-func init() {
-	retryClient = retryablehttp.NewClient()
-	retryClient.RetryMax = 3
-	retryClient.RetryWaitMin = 1 * time.Second
-	retryClient.RetryWaitMax = 5 * time.Second
-	retryClient.HTTPClient = &http.Client{
-		Timeout: 10 * time.Second,
+	return &Sender{
+		serverAddr: serverAddr,
+		key:        key,
+		publicKey:  publicKey,
+		localIP:    getLocalIP(),
+		client:     client,
 	}
 }
 
-// computeHash вычисляет HMAC-SHA256 хеш от данных с ключом
 func computeHash(data []byte, key string) string {
 	if key == "" {
 		return ""
@@ -73,8 +78,8 @@ func computeHash(data []byte, key string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// SendMetricsBatch отправляет несколько метрик одним POST-запросом на эндпоинт /updates.
-func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) error {
+// SendBatch отправляет пакет метрик одним POST-запросом на /updates.
+func (s *Sender) SendBatch(ctx context.Context, metrics []models.Metrics) error {
 	if len(metrics) == 0 {
 		return nil
 	}
@@ -89,16 +94,15 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) e
 		return fmt.Errorf("failed to gzip data: %w", err)
 	}
 
-	fullURL, err := url.JoinPath("http://"+serverAddr, "/updates")
+	fullURL, err := url.JoinPath("http://"+s.serverAddr, "/updates")
 	if err != nil {
 		return fmt.Errorf("failed to build URL: %w", err)
 	}
 
 	var finalBody []byte
 	var isEncrypted bool
-
-	if publicKey != nil {
-		encData, err := crypto.Encrypt(gzData, publicKey)
+	if s.publicKey != nil {
+		encData, err := crypto.Encrypt(gzData, s.publicKey)
 		if err != nil {
 			return fmt.Errorf("encrypt payload: %w", err)
 		}
@@ -113,161 +117,8 @@ func SendMetricsBatch(serverAddr string, metrics []models.Metrics, key string) e
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	if isEncrypted {
-		req.Header.Set("X-Crypto-Encrypted", "true")
-		req.Header.Set("Content-Type", "application/octet-stream")
-	} else {
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Content-Encoding", "gzip")
-	}
-	req.Header.Set("Accept-Encoding", "gzip")
-
-	hash := computeHash(jsonData, key)
-	if hash != "" {
-		req.Header.Set("HashSHA256", hash)
-	}
-	if ip := getLocalIP(); ip != "" {
-		req.Header.Set("X-Real-IP", ip)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	resp, err := retryClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send request after retries: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned status: %d", resp.StatusCode)
-	}
-	return nil
-
-}
-
-// SendMetrics отправляет каждую метрику по отдельности через эндпоинт /update.
-func SendMetrics(serverAddr string, metrics []models.Metrics, key string) error {
-	for _, metric := range metrics {
-
-		jsonData, err := json.Marshal(metric)
-		if err != nil {
-			return fmt.Errorf("marshal metric: %w", err)
-		}
-
-		gzData, err := gzipData(jsonData)
-		if err != nil {
-			return fmt.Errorf("gzip data: %w", err)
-		}
-
-		var finalBody []byte
-		isEncrypted := false
-		if publicKey != nil {
-			encData, err := crypto.Encrypt(gzData, publicKey)
-			if err != nil {
-				return fmt.Errorf("encrypt payload: %w", err)
-			}
-			finalBody = encData
-			isEncrypted = true
-		} else {
-			finalBody = gzData
-		}
-
-		fullURL, err := url.JoinPath("http://"+serverAddr, "/update")
-		if err != nil {
-			return fmt.Errorf("build URL: %w", err)
-		}
-
-		req, err := retryablehttp.NewRequest("POST", fullURL, bytes.NewBuffer(finalBody))
-		if err != nil {
-			return fmt.Errorf("create request: %w", err)
-		}
-		if ip := getLocalIP(); ip != "" {
-			req.Header.Set("X-Real-IP", ip)
-		}
-
-		if isEncrypted {
-			req.Header.Set("X-Crypto-Encrypted", "true")
-			req.Header.Set("Content-Type", "application/octet-stream")
-		} else {
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Content-Encoding", "gzip")
-		}
-		req.Header.Set("Accept-Encoding", "gzip")
-
-		hash := computeHash(jsonData, key)
-		if hash != "" {
-			req.Header.Set("HashSHA256", hash)
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		req = req.WithContext(ctx)
-
-		resp, err := retryClient.Do(req)
-		if err != nil {
-			return fmt.Errorf("send request: %w", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("unexpected status %d for metric %s", resp.StatusCode, metric.ID)
-		}
-	}
-	return nil
-}
-
-// InitAgentCrypto загружает публичный ключ один раз.
-func InitAgentCrypto(path string) error {
-	if path == "" {
-		return nil
-	}
-	var err error
-	publicKey, err = crypto.LoadPublicKey(path)
-	return err
-}
-func SendMetricsBatchWithContext(ctx context.Context, serverAddr string, metrics []models.Metrics, key string) error {
-	if len(metrics) == 0 {
-		return nil
-	}
-
-	jsonData, err := json.Marshal(metrics)
-	if err != nil {
-		return fmt.Errorf("failed to marshal metrics: %w", err)
-	}
-
-	gzData, err := gzipData(jsonData)
-	if err != nil {
-		return fmt.Errorf("failed to gzip data: %w", err)
-	}
-
-	fullURL, err := url.JoinPath("http://"+serverAddr, "/updates")
-	if err != nil {
-		return fmt.Errorf("failed to build URL: %w", err)
-	}
-
-	var finalBody []byte
-	var isEncrypted bool
-	if publicKey != nil {
-		encData, err := crypto.Encrypt(gzData, publicKey)
-		if err != nil {
-			return fmt.Errorf("encrypt payload: %w", err)
-		}
-		finalBody = encData
-		isEncrypted = true
-	} else {
-		finalBody = gzData
-	}
-
-	req, err := retryablehttp.NewRequest("POST", fullURL, bytes.NewBuffer(finalBody))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Add this block
-	if ip := getLocalIP(); ip != "" {
-		req.Header.Set("X-Real-IP", ip)
+	if s.localIP != "" {
+		req.Header.Set("X-Real-IP", s.localIP)
 	}
 
 	if isEncrypted {
@@ -279,15 +130,14 @@ func SendMetricsBatchWithContext(ctx context.Context, serverAddr string, metrics
 	}
 	req.Header.Set("Accept-Encoding", "gzip")
 
-	hash := computeHash(jsonData, key)
+	hash := computeHash(jsonData, s.key)
 	if hash != "" {
 		req.Header.Set("HashSHA256", hash)
 	}
 
-	// Use provided context
 	req = req.WithContext(ctx)
 
-	resp, err := retryClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request after retries: %w", err)
 	}
@@ -296,24 +146,19 @@ func SendMetricsBatchWithContext(ctx context.Context, serverAddr string, metrics
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("server returned status: %d", resp.StatusCode)
 	}
-	if ip := getLocalIP(); ip != "" {
-		req.Header.Set("X-Real-IP", ip)
-	}
-
 	return nil
 }
+
+// getLocalIP возвращает первый не‑loopback IPv4 адрес.
 func getLocalIP() string {
-	localIPOnce.Do(func() {
-		addrs, err := net.InterfaceAddrs()
-		if err != nil {
-			return
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			return ipnet.IP.String()
 		}
-		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-				localIP = ipnet.IP.String()
-				break
-			}
-		}
-	})
-	return localIP
+	}
+	return ""
 }

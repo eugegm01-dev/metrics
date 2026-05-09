@@ -28,3 +28,4 @@ message UpdateMetricsResponse {}
 service Metrics {
   rpc UpdateMetrics(UpdateMetricsRequest) returns (UpdateMetricsResponse);
 }
+

@@ -34,3 +34,8 @@ metrics-db.json
 .DS_Store
 Thumbs.db
 ehthumbs.db
+
+
+
+*.agent.json
+*.server.json

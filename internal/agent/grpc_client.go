@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	pb "github.com/eugegm01-dev/metrics/api/metrics/v1"
 	"google.golang.org/grpc"
@@ -14,11 +13,12 @@ import (
 type GRPCClient struct {
 	conn   *grpc.ClientConn
 	client pb.MetricsClient
-	mu     sync.Mutex
 }
 
 func NewGRPCClient(addr string) (*GRPCClient, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("grpc dial: %w", err)
 	}
@@ -33,28 +33,34 @@ func (gc *GRPCClient) Close() error {
 }
 
 func (gc *GRPCClient) SendBatch(ctx context.Context, metrics []Metric) error {
-	pbMetrics := make([]*pb.Metric, len(metrics))
-	for i, m := range metrics {
+	pbMetrics := make([]*pb.Metric, 0, len(metrics))
+	for _, m := range metrics {
 		mt := pb.Metric_GAUGE
 		if m.MType == "counter" {
 			mt = pb.Metric_COUNTER
 		}
-		pm := &pb.Metric{
+
+		// Opaque API builder – fields are direct values
+		pm := (&pb.Metric_builder{
 			Id:    m.ID,
 			Type:  mt,
 			Delta: m.Delta,
 			Value: m.Value,
-		}
-		pbMetrics[i] = pm
+		}).Build()
+		pbMetrics = append(pbMetrics, pm)
 	}
-	req := &pb.UpdateMetricsRequest{Metrics: pbMetrics}
 
-	// Добавляем метаданные с IP агентом
-	localIP := getLocalIP() // уже есть в sender.go
+	req := (&pb.UpdateMetricsRequest_builder{
+		Metrics: pbMetrics,
+	}).Build()
+
+	// Attach local IP metadata if available
+	localIP := getLocalIP()
 	if localIP != "" {
 		md := metadata.New(map[string]string{"x-real-ip": localIP})
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
+
 	_, err := gc.client.UpdateMetrics(ctx, req)
 	return err
 }

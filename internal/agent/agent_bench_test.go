@@ -5,13 +5,13 @@ import (
 )
 
 func BenchmarkCollectRuntimeMetrics(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = collectRuntimeMetrics()
 	}
 }
 
 func BenchmarkCollectSystemMetrics(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = collectSystemMetrics()
 	}
 }
