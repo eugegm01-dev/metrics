@@ -1,0 +1,17 @@
+version: v1
+managed:
+  enabled: true
+  go_package_prefix:
+    default: github.com/eugegm01-dev/metrics/api
+plugins:
+  - plugin: go
+    out: .
+    path: /home/gubaevem/go/bin/protoc-gen-go   # ← full path
+    opt:
+      - paths=source_relative
+      - api_level=API_OPAQUE
+  - plugin: go-grpc
+    out: .
+    path: /home/gubaevem/go/bin/protoc-gen-go-grpc
+    opt:
+      - paths=source_relative

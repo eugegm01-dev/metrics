@@ -10,7 +10,9 @@ import (
 	"strings"
 )
 
-// HashMiddleware проверяет хеш входящих запросов и добавляет хеш к исходящим ответам
+// HashMiddleware добавляет заголовок хеша к ответам и проверяет хеши входящих запросов.
+// Использует заданный ключ для вычисления HMAC-SHA256 тела запроса/ответа.
+// Если ключ пустой, middleware ничего не делает.
 func HashMiddleware(key string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +102,7 @@ func (hw *hashResponseWriter) Close() error {
 
 	// Записываем заголовки и тело
 	hw.ResponseWriter.Header().Set("Content-Length", strconv.Itoa(len(hw.body)))
-	hw.ResponseWriter.Write(hw.body)
+	hw.Flush()
 
 	return nil
 }

@@ -1,14 +1,12 @@
 # Go build artifacts (бинарники)
 *.exe
 *.exe~
-server
-agent
-main
-collector
-sender
+/agent          # бинарник агента в корне
+/server         # бинарник сервера в корне
 *.test
 *.out
 *.prof
+/profiles/*.pprof
 
 # Common build outputs from cmd
 cmd/*/main
@@ -22,9 +20,9 @@ vendor/
 *.tmp
 *.bak
 *~
-*.json
-metrics-db.json
 
+# Metrics database file
+metrics-db.json
 
 # IDE files
 .idea/
@@ -36,3 +34,8 @@ metrics-db.json
 .DS_Store
 Thumbs.db
 ehthumbs.db
+
+
+
+*.agent.json
+*.server.json
